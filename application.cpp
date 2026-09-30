@@ -333,7 +333,7 @@ main() {
 
     int width = 800;
     int height = 600;
-    std::string title = "Hello Window";
+    std::string title = "Render Graph";
     GLFWwindow* window =
       glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
 
@@ -426,7 +426,6 @@ main() {
         .features = device_features.data(),
         .queue_priorities = priorities,
         .extensions = extensions,
-        // .queue_family_index = queue_indices.graphics,
         .queue_family_index = 0,
     };
 
