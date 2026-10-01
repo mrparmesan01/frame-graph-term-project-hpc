@@ -25,12 +25,15 @@ import vk;
 #include <expected>
 #include <ranges>
 
-#include <tiny_obj_loader.h>
+// #include <tiny_obj_loader.h>
 
-#ifndef STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-#endif
+// #ifndef STB_IMAGE_IMPLEMENTATION
+// #define STB_IMAGE_IMPLEMENTATION
+// #include <stb_image.h>
+// #endif
+import vertex;
+import image;
+import obj_model;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debug_callback(
@@ -47,170 +50,6 @@ struct global_uniform {
     glm::mat4 model;
     glm::mat4 view;
     glm::mat4 proj;
-};
-
-template<typename T, typename... Rest>
-void
-hash_combine(size_t& seed, const T& v, const Rest&... rest) {
-    seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed << 2);
-    (hash_combine(seed, rest), ...);
-}
-
-namespace std {
-
-    template<>
-    struct hash<vk::vertex_input> {
-        size_t operator()(const vk::vertex_input& vertex) const {
-            size_t seed = 0;
-            hash_combine(
-              seed, vertex.position, vertex.color, vertex.normals, vertex.uv);
-            return seed;
-        }
-    };
-}
-
-// Part of this demo for loading a 3D .obj model
-class obj_model {
-public:
-    obj_model() = default;
-    obj_model(const std::filesystem::path& p_filename,
-              const VkDevice& p_device,
-              const vk::physical_device& p_physical) {
-        tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warn, err;
-
-        //! @note If we return the constructor then we can check if the mesh
-        //! loaded successfully
-        //! @note We also receive hints if the loading is successful!
-        //! @note Return default constructor automatically returns false means
-        //! that mesh will return the boolean as false because it wasnt
-        //! successful
-        if (!tinyobj::LoadObj(&attrib,
-                              &shapes,
-                              &materials,
-                              &warn,
-                              &err,
-                              p_filename.string().c_str())) {
-            std::println("Could not load model from path {}",
-                         p_filename.string());
-            m_is_loaded = false;
-            return;
-        }
-
-        std::vector<vk::vertex_input> vertices;
-        std::vector<uint32_t> indices;
-        std::unordered_map<vk::vertex_input, uint32_t> unique_vertices{};
-
-        for (const auto& shape : shapes) {
-            for (const auto& index : shape.mesh.indices) {
-                vk::vertex_input vertex{};
-
-                // vertices.push_back(vertex);
-                if (!unique_vertices.contains(vertex)) {
-                    unique_vertices[vertex] =
-                      static_cast<uint32_t>(vertices.size());
-                    vertices.push_back(vertex);
-                }
-
-                if (index.vertex_index >= 0) {
-                    vertex.position = {
-                        attrib.vertices[3 * index.vertex_index + 0],
-                        attrib.vertices[3 * index.vertex_index + 1],
-                        attrib.vertices[3 * index.vertex_index + 2]
-                    };
-
-                    vertex.color = {
-                        attrib.colors[3 * index.vertex_index + 0],
-                        attrib.colors[3 * index.vertex_index + 1],
-                        attrib.colors[3 * index.vertex_index + 2]
-                    };
-                }
-
-                if (index.normal_index >= 0) {
-                    vertex.normals = {
-                        attrib.normals[3 * index.normal_index + 0],
-                        attrib.normals[3 * index.normal_index + 1],
-                        attrib.normals[3 * index.normal_index + 2]
-                    };
-                }
-
-                if (index.texcoord_index >= 0) {
-                    vertex.uv = {
-                        attrib.texcoords[2 * index.texcoord_index + 0],
-                        1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-                    };
-                }
-
-                if (!unique_vertices.contains(vertex)) {
-                    unique_vertices[vertex] =
-                      static_cast<uint32_t>(vertices.size());
-                    vertices.push_back(vertex);
-                }
-
-                indices.push_back(unique_vertices[vertex]);
-            }
-        }
-
-        m_has_indices = (indices.size() > 0) ? true : false;
-
-        if (m_has_indices) {
-            m_indices_size = indices.size();
-        }
-        m_indices_size = vertices.size();
-        m_indices_size = indices.size();
-
-        vk::buffer_parameters vertex_params = {
-            .memory_mask = p_physical.memory_properties(
-              vk::memory_property::device_local_bit |
-              vk::memory_property::host_visible_bit),
-            .usage = vk::buffer_usage::transfer_dst_bit |
-                     vk::buffer_usage::vertex_buffer_bit,
-        };
-
-        vk::buffer_parameters index_params = {
-            .memory_mask = p_physical.memory_properties(
-              vk::memory_property::host_visible_bit |
-              vk::memory_property::host_cached_bit),
-            .usage = vk::buffer_usage::index_buffer_bit,
-        };
-
-        m_vertex_buffer = vk::vertex_buffer(p_device, vertices, vertex_params);
-        m_index_buffer = vk::index_buffer(p_device, indices, index_params);
-        m_is_loaded = true;
-    }
-
-    [[nodiscard]] bool loaded() const { return m_is_loaded; }
-
-    [[nodiscard]] VkBuffer vertex_handle() const { return m_vertex_buffer; }
-
-    [[nodiscard]] VkBuffer index_handle() const { return m_index_buffer; }
-
-    [[nodiscard]] bool has_indices() const { return m_has_indices; }
-
-    [[nodiscard]] uint32_t indices_size() const { return m_indices_size; }
-
-    void draw(const VkCommandBuffer& p_command) {
-        if (m_has_indices) {
-            vkCmdDrawIndexed(p_command, m_indices_size, 1, 0, 0, 0);
-        }
-        else {
-            vkCmdDraw(p_command, m_indices_size, 1, 0, 0);
-        }
-    }
-
-    void destruct() {
-        m_vertex_buffer.destruct();
-        m_index_buffer.destruct();
-    }
-
-private:
-    bool m_is_loaded = false;
-    bool m_has_indices = false;
-    uint32_t m_indices_size = 0;
-    vk::vertex_buffer m_vertex_buffer{};
-    vk::index_buffer m_index_buffer{};
 };
 
 std::vector<const char*>
@@ -239,80 +78,6 @@ get_instance_extensions() {
 struct push_constant_data {
     uint32_t texture_index = 0;
     uint64_t global_ubo_addr = 0;
-};
-
-/**
- * @brief STBI-specific implementation of the vk::image interface
- */
-class stb_image : public vk::image {
-public:
-    stb_image() = delete;
-
-    stb_image(std::string_view p_path, vk::texture_params p_params) {
-        image_load(p_path, p_params);
-    }
-
-    ~stb_image() = default;
-
-protected:
-    bool image_load(std::string_view p_path,
-                    vk::texture_params p_params) override {
-        int w = 0;
-        int h = 0;
-        int channels = 0;
-
-        stbi_uc* image_pixel_data =
-          stbi_load(p_path.data(), &w, &h, &channels, STBI_rgb_alpha);
-
-        if (!image_pixel_data) {
-            return false;
-        }
-
-        const VkFormat texture_format =
-          static_cast<VkFormat>(vk::format::r8g8b8a8_unorm);
-        int bytes_per_pixel = vk::bytes_per_texture_format(texture_format);
-
-        m_extent = {
-            .width = static_cast<uint32_t>(w),
-            .height = static_cast<uint32_t>(h),
-        };
-
-        // Retrieving total size of bytes of the dimensions of the image and
-        // accounting for pixels of the image
-        uint32_t size_bytes =
-          m_extent.width * m_extent.height * bytes_per_pixel;
-
-        // Retrieving total image size to the count of the image layers
-        uint32_t size = size_bytes * p_params.layer_count;
-
-        vk::image_params image_options = {
-            .extent = m_extent,
-            .format = texture_format,
-            .memory_mask = p_params.memory_mask,
-            .usage =
-              vk::image_usage::transfer_dst_bit | vk::image_usage::sampled_bit,
-            .mip_levels = p_params.mip_levels,
-            .layer_count = p_params.layer_count,
-        };
-
-        m_bytes.reserve(size);
-        std::span<uint8_t> bytes_view =
-          std::span<uint8_t>(image_pixel_data, size);
-
-        m_bytes.assign(bytes_view.begin(), bytes_view.end());
-
-        stbi_image_free(image_pixel_data);
-
-        return true;
-    }
-
-    std::span<const uint8_t> image_read() const override { return m_bytes; }
-
-    vk::image_extent image_extent() const override { return m_extent; }
-
-private:
-    vk::image_extent m_extent{};
-    std::vector<uint8_t> m_bytes{};
 };
 
 int

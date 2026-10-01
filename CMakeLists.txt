@@ -19,3 +19,12 @@ build_application(
     tinyobjloader
     Vulkan::Vulkan
 )
+
+target_sources(${PROJECT_NAME} PUBLIC
+    FILE_SET CXX_MODULES
+    TYPE CXX_MODULES
+    FILES
+    vertex.cppm
+    image.cppm
+    obj_model.cppm
+)
