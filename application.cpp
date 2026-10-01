@@ -14,6 +14,7 @@
 #include <print>
 #include <span>
 #include <filesystem>
+#include <ranges>
 import vk;
 
 #include <chrono>
@@ -360,7 +361,7 @@ main() {
         .slot = 0,               // indicate specific descriptor slot 0
         .max_sets = image_count, // max descriptors to allocate
         .entries = entries_set1, // descriptor layout entries description
-        .descriptor_counts = std::span<const uint32_t>(&max_descriptor, 1),
+        .descriptor_counts = std::views::single(max_descriptor),
     };
 
     vk::descriptor_resource set1_resource(
