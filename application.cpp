@@ -23,14 +23,7 @@ import vk;
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 #include <expected>
-#include <ranges>
 
-// #include <tiny_obj_loader.h>
-
-// #ifndef STB_IMAGE_IMPLEMENTATION
-// #define STB_IMAGE_IMPLEMENTATION
-// #include <stb_image.h>
-// #endif
 import vertex;
 import image;
 import obj_model;

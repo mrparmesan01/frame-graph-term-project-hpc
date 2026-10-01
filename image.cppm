@@ -1,7 +1,5 @@
 module;
 
-#include <print>
-#include <filesystem>
 #include <string_view>
 
 #ifndef STB_IMAGE_IMPLEMENTATION

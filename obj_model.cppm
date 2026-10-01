@@ -1,9 +1,13 @@
 
 module;
 
+#include <vector>
+#include <string>
 #include <unordered_map>
 #include <print>
 #include <filesystem>
+
+#define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
 #define GLFW_INCLUDE_VULKAN
