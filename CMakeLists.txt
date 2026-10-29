@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.0)
-project(buffer-device-address CXX)
+project(frame-graph CXX)
 
 build_application(
     SOURCES
@@ -24,6 +24,7 @@ target_sources(${PROJECT_NAME} PUBLIC
     FILE_SET CXX_MODULES
     TYPE CXX_MODULES
     FILES
+    vk_utilities.cppm
     vertex.cppm
     image.cppm
     obj_model.cppm

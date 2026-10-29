@@ -1,89 +1,43 @@
-#define GLFW_INCLUDE_VULKAN
-#if _WIN32
-#define VK_USE_PLATFORM_WIN32_KHR
-#include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
-#include <vulkan/vulkan.h>
-#else
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
-#endif
 
-#include <array>
 #include <print>
+#include <algorithm>
+#include <cmath>
 #include <span>
-#include <filesystem>
-#include <ranges>
-import vk;
-
-#include <chrono>
-#define GLM_FORCE_RADIANS
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/hash.hpp>
+#include <variant>
+#include <array>
+#include <vector>
+#include <queue>
+#include <list>
 #include <expected>
+#include <ranges>
 
-import vertex;
-import image;
-import obj_model;
+import vk;
+import vk_utilities;
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL
-debug_callback(
-  [[maybe_unused]] VkDebugUtilsMessageSeverityFlagBitsEXT p_message_severity,
-  [[maybe_unused]] VkDebugUtilsMessageTypeFlagsEXT p_message_type,
-  const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data,
-  [[maybe_unused]] void* p_user_data) {
 
-    std::print("validation layer:\t\t{}\n\n", p_callback_data->pMessage);
-    return false;
-}
+class rendergraph {
+public:
+    rendergraph() = default;
 
-struct global_uniform {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 proj;
+    // Build and analyze dependencies of the render graph.
+    void compile() {}
+
+    // Takes the primary command buffer that is used to submit GPU workflow here
+    void execute(vk::command_buffer p_command) {}
+private:
 };
 
-std::vector<const char*>
-get_instance_extensions() {
-    std::vector<const char*> extension_names;
-    uint32_t extension_count = 0;
-    const char** required_extensions =
-      glfwGetRequiredInstanceExtensions(&extension_count);
+int main() {
 
-    for (uint32_t i = 0; i < extension_count; i++) {
-        std::println("Required Extension = {}", required_extensions[i]);
-        extension_names.emplace_back(required_extensions[i]);
-    }
-
-    extension_names.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-
-#if defined(__APPLE__)
-    extension_names.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-    extension_names.emplace_back(
-      VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-#endif
-
-    return extension_names;
-}
-
-struct push_constant_data {
-    uint32_t texture_index = 0;
-    uint64_t global_ubo_addr = 0;
-};
-
-int
-main() {
-    //! @note Just added the some test code to test the conan-starter setup code
-    if (!glfwInit()) {
-        std::print("glfwInit could not be initialized!\n");
+    if(!glfwInit()) {
+        std::println("GLFW Error: glfwInit could not be initialized!\n");
         return -1;
     }
 
-    if (!glfwVulkanSupported()) {
-        std::print("GLFW: Vulkan is not supported!");
+    if(!glfwVulkanSupported()) {
+        std::println("GLFW Error: Vulkan is not supported!");
         return -1;
     }
 
@@ -102,16 +56,12 @@ main() {
         "VK_LAYER_KHRONOS_validation",
     };
 
-    // setting up extensions
-    std::vector<const char*> global_extensions = get_instance_extensions();
+    auto global_extensions = get_instance_extensions();
+
 
     vk::debug_message_utility debug_callback_info = {
-        // .severity essentially takes in vk::message::verbose,
-        // vk::message::warning, vk::message::error
         .severity =
           vk::message::verbose | vk::message::warning | vk::message::error,
-        // .message_type essentially takes in vk::debug. Like:
-        // vk::debug::general, vk::debug::validation, vk::debug::performance
         .message_type =
           vk::debug::general | vk::debug::validation | vk::debug::performance,
         .callback = debug_callback
@@ -121,19 +71,17 @@ main() {
         .name = "vulkan instance",
         .version = vk::api_version::vk_1_3, // specify to using vulkan 1.3
         .validations =
-          validation_layers, // .validation takes in a std::span<const char*>
+          validation_layers,
         .extensions =
-          global_extensions // .extensions also takes in std::span<const char*>
+          global_extensions
     };
 
     // 1. Setting up vk instance
     vk::instance api_instance(config, debug_callback_info);
 
-    if (api_instance.alive()) {
-        std::println("\napi_instance alive and initiated!!!");
+    if(api_instance.alive()) {
+        std::println("vk::instance is initialized!!");
     }
-
-    // setting up physical device
 
 #if __APPLE__
     std::expected<vk::physical_device, VkResult> res = api_instance.enumerate_physical_device(vk::physical_gpu::integrated);
@@ -141,10 +89,8 @@ main() {
     std::expected<vk::physical_device, VKResult> res = api_instance.enumerate_physical_device(vk::physical_gpu::discrete);
 #endif
     
-    
     vk::physical_device physical_device = res.value();
 
-    // setting up logical device
     std::array<float, 1> priorities = { 0.f };
 
 #if defined(__APPLE__)
@@ -166,8 +112,7 @@ main() {
 
     // We provide a selection of format support that we want to check is
     // supported on current hardware device.
-    VkFormat depth_format =
-      physical_device.request_depth_format(format_support);
+    VkFormat depth_format = physical_device.request_depth_format(format_support);
 
     vk::device_features device_features{
         vk::dynamic_rendering_feature{ {
@@ -182,6 +127,9 @@ main() {
         } },
         vk::buffer_device_address{ {
           .bufferDeviceAddress = true,
+        } },
+        vk::synchronization2{ {
+          .synchronization2 = true,
         } },
     };
 
@@ -204,16 +152,10 @@ main() {
         .height = static_cast<uint32_t>(height),
         .present_index = 0,
     };
-
     vk::swapchain main_swapchain(logical_device,
                                  window_surface,
                                  enumerate_swapchain_settings,
                                  surface_properties);
-
-    if (!main_swapchain.alive()) {
-        std::println("main_swapchain is nullptr!!!");
-        return -1;
-    }
 
     // querying presentable images
     std::span<const VkImage> images = main_swapchain.get_images();
@@ -231,7 +173,7 @@ main() {
     for (uint32_t i = 0; i < swapchain_images.size(); i++) {
         vk::image_params swapchain_image_config = {
             .extent = { .width = swapchain_extent.width,
-                        .height = swapchain_extent.height, },
+                        .height = swapchain_extent.height },
             .format = surface_properties.format.format,
             .memory_mask = physical_device.memory_properties(
               vk::memory_property::device_local_bit),
@@ -288,13 +230,11 @@ main() {
     // Loading graphics pipeline
     std::array<vk::shader_source, 2> shader_sources = {
         vk::shader_source{
-          .filename =
-            "shaders/test.vert.spv",
+          .filename = "shaders/test.vert.spv",
           .stage = vk::shader_stage::vertex,
         },
         vk::shader_source{
-          .filename =
-            "shaders/test.frag.spv",
+          .filename = "shaders/test.frag.spv",
           .stage = vk::shader_stage::fragment,
         },
     };
@@ -307,72 +247,6 @@ main() {
     };
     vk::shader_resource geometry_resource(logical_device, shader_info);
 
-    // Setting up vertex attributes in the test shaders
-    std::array<vk::vertex_attribute_entry, 4> attribute_entries = {
-        vk::vertex_attribute_entry{
-          .location = 0,
-          .format = vk::format::rgb32_sfloat,
-          .stride = offsetof(vk::vertex_input, position),
-        },
-        vk::vertex_attribute_entry{
-          .location = 1,
-          .format = vk::format::rgb32_sfloat,
-          .stride = offsetof(vk::vertex_input, color),
-        },
-        vk::vertex_attribute_entry{
-          .location = 2,
-          .format = vk::format::rg32_sfloat,
-          .stride = offsetof(vk::vertex_input, uv),
-        },
-        vk::vertex_attribute_entry{
-          .location = 3,
-          .format = vk::format::rgb32_sfloat,
-          .stride = offsetof(vk::vertex_input, normals),
-        }
-    };
-
-    std::array<vk::vertex_attribute, 1> attributes = {
-        vk::vertex_attribute{
-          .binding = 0,
-          .entries = attribute_entries,
-          .stride = sizeof(vk::vertex_input),
-          .input_rate = vk::input_rate::vertex,
-        },
-    };
-    geometry_resource.vertex_attributes(attributes);
-
-    std::vector<vk::descriptor_entry> entries_set1 = {
-        vk::descriptor_entry{
-            // layout (set = 0, binding = 1) uniform sampler2D textures[];
-            .type = vk::descriptor_type::combined_image_sampler,
-            .binding_point = {
-                .binding = 1,
-                .stage = vk::shader_stage::fragment,
-            },
-            .descriptor_count = 1,
-            .flags = vk::descriptor_bind_flags::partially_bound_bit |
-                     vk::descriptor_bind_flags::variable_descriptor_count_bit |
-                     vk::descriptor_bind_flags::update_after_bind,
-        }
-    };
-
-    uint32_t max_descriptor = 1;
-    vk::descriptor_layout set1_layout = {
-        .slot = 0,               // indicate specific descriptor slot 0
-        .max_sets = image_count, // max descriptors to allocate
-        .entries = entries_set1, // descriptor layout entries description
-        .descriptor_counts = std::views::single(max_descriptor),
-    };
-
-    vk::descriptor_resource set1_resource(
-      logical_device,
-      set1_layout,
-      vk::descriptor_layout_flags::update_after_bind_pool);
-
-    std::array<VkDescriptorSetLayout, 1> layouts = {
-        set1_resource.layout(),
-    };
-
     std::array<vk::color_blend_attachment_state, 1> color_blend_attachments = {
         vk::color_blend_attachment_state{},
     };
@@ -382,15 +256,6 @@ main() {
     };
 
     uint32_t format = static_cast<uint32_t>(surface_properties.format.format);
-    uint32_t vertex_mask = static_cast<uint32_t>(vk::shader_stage::vertex);
-    uint32_t fragment_mask = static_cast<uint32_t>(vk::shader_stage::fragment);
-    uint32_t stage_mask = vertex_mask | fragment_mask;
-    vk::shader_stage stage = static_cast<vk::shader_stage>(stage_mask);
-    vk::push_constant_range range = {
-        .stage = stage,
-        .offset = 0,
-        .range = sizeof(push_constant_data),
-    };
     vk::pipeline_params pipeline_configuration = {
         .use_render_pipeline = true,
         .color_attachment_formats = std::span<const uint32_t>(&format, 1),
@@ -400,58 +265,13 @@ main() {
         .shader_modules = geometry_resource.handles(),
         .vertex_attributes = geometry_resource.vertex_attributes(),
         .vertex_bind_attributes = geometry_resource.vertex_bind_attributes(),
-        .descriptor_layouts = layouts,
         .color_blend = {
             .attachments = color_blend_attachments,
         },
         .depth_stencil_enabled = true,
         .dynamic_states = dynamic_states,
-        .push_constants = std::span<const vk::push_constant_range>(&range, 1),
     };
     vk::pipeline main_graphics_pipeline(logical_device, pipeline_configuration);
-
-    obj_model test_model(std::filesystem::path("asset_samples/viking_room.obj"),
-                         logical_device,
-                         physical_device);
-
-    vk::buffer_parameters uniform_params = {
-        .memory_mask =
-          physical_device.memory_properties(static_cast<vk::memory_property>(
-            vk::memory_property::host_visible_bit |
-            vk::memory_property::host_cached_bit)),
-        .usage = vk::buffer_usage::uniform_buffer_bit |
-                 vk::buffer_usage::shader_device_address_bit,
-        .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
-    };
-    vk::dyn::buffer test_ubo =
-      vk::dyn::buffer(logical_device, sizeof(global_uniform), uniform_params);
-
-    vk::texture_params config_texture = {
-        .memory_mask = physical_device.memory_properties(
-          vk::memory_property::host_visible_bit |
-          vk::memory_property::host_cached_bit),
-    };
-
-    stb_image img = stb_image("asset_samples/viking_room.png", config_texture);
-    vk::texture texture1(logical_device, &img, config_texture);
-
-    // Setting the texture sampler/image view to descriptor resource
-    std::array<vk::write_image, 1> samplers = {
-        vk::write_image{
-          .sampler = texture1.image().sampler(),
-          .view = texture1.image().image_view(),
-          .layout = vk::image_layout::shader_read_only_optimal,
-        },
-    };
-
-    std::array<vk::write_image_descriptor, 1> set1_samples = {
-        vk::write_image_descriptor{
-          .dst_binding = 1,
-          .sample_images = samplers,
-        }
-    };
-
-    set1_resource.update({}, set1_samples);
 
     VkClearValue clear_color = {
         { 0.f, 0.5f, 0.5f, 1.f },
@@ -461,29 +281,48 @@ main() {
         .depthStencil = { .depth = 1.f, .stencil = 0 },
     };
 
-    while (!glfwWindowShouldClose(window)) {
+    while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-
         uint32_t current_frame = presentation_queue.acquire_next_image();
         vk::command_buffer current = swapchain_command_buffers[current_frame];
 
         current.begin(vk::command_usage::simulatneous_use_bit);
 
-        swapchain_images[current_frame].memory_barrier(
-          current,
-          surface_properties.format.format,
-          VK_IMAGE_LAYOUT_UNDEFINED,
-          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
         // Because dynamic rendering does not automatically handle layout
         // transitions These memory barriers set the color and depth images for
         // the output
-        swapchain_depth_images[current_frame].memory_barrier(
-          current,
-          depth_format,
-          VK_IMAGE_LAYOUT_UNDEFINED,
-          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-          VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
+
+        // pipeline barrier for color attachment to transition from undefined to
+        // color optimal layout
+        vk::v2::image_memory_barrier color_memory_barrier = {
+            .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
+            .src_access_mask = vk::v2::access_flags::memory_read_bit,
+            .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
+            .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit,
+            .old_layout = vk::image_layout::undefined,
+            .new_layout = vk::image_layout::color_optimal,
+            .subresource_range = {
+                .aspect_mask = vk::image_aspect_flags::color_bit,
+            },
+        };
+        swapchain_images[current_frame].pipeline_barriers(
+          current, std::views::single(color_memory_barrier));
+
+        // pipeline barrier for depth attachment to transition from undefined to
+        // depth optimal layout
+        vk::v2::image_memory_barrier image_depth_memory_barrier = {
+            .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
+            .src_access_mask = vk::v2::access_flags::memory_read_bit,
+            .dst_stage_mask  = vk::v2::pipeline_stage_flags::early_fragment_shader_bit,
+            .dst_access_mask = vk::v2::access_flags::depth_stencil_attachment_write_bit,
+            .old_layout = vk::image_layout::undefined,
+            .new_layout = vk::image_layout::depth_stencil_optimal,
+            .subresource_range = {
+                .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit,
+            },
+        };
+        swapchain_depth_images[current_frame].pipeline_barriers(
+          current, std::views::single(image_depth_memory_barrier));
 
         vk::rendering_attachment color_render_attachment = {
             .image_view = swapchain_images[current_frame].image_view(),
@@ -542,64 +381,26 @@ main() {
         current.begin_rendering(begin_params);
 
         main_graphics_pipeline.bind(current);
-
-        const VkBuffer vertex = test_model.vertex_handle();
-        uint64_t offset = 0;
-        current.bind_vertex_buffers(std::span<const VkBuffer>(&vertex, 1),
-                                    std::span<uint64_t>(&offset, 1));
-
-        if (test_model.has_indices()) {
-            current.bind_index_buffers32(test_model.index_handle());
-        }
-
-        static auto start_time = std::chrono::high_resolution_clock::now();
-
-        auto current_time = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(
-                       current_time - start_time)
-                       .count();
-
-        // We set the uniforms and then we offload that to the GPU
-        global_uniform ubo = {
-            .model = glm::rotate(glm::mat4(1.0f),
-                                 time * glm::radians(90.0f),
-                                 glm::vec3(0.0f, 0.0f, 1.0f)),
-            .view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
-                                glm::vec3(0.0f, 0.0f, 0.0f),
-                                glm::vec3(0.0f, 0.0f, 1.0f)),
-            .proj = glm::perspective(glm::radians(45.0f),
-                                     (float)swapchain_extent.width /
-                                       (float)swapchain_extent.height,
-                                     0.1f,
-                                     10.0f)
-        };
-        ubo.proj[1][1] *= -1;
-
-        test_ubo.transfer<global_uniform>(
-          std::span<const global_uniform>(&ubo, 1));
-
-        const uint64_t ubo_address = test_ubo.get_device_address();
-        push_constant_data push = {
-            .texture_index = 0,
-            .global_ubo_addr = ubo_address,
-        };
-        main_graphics_pipeline.push_constant<push_constant_data>(
-          current, push, stage, 0);
-
-        const VkDescriptorSet set1 = set1_resource;
-        current.bind_descriptors(main_graphics_pipeline.layout(),
-                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                 std::span<const VkDescriptorSet>(&set1, 1));
-
-        test_model.draw(current);
+        vkCmdDraw(current, 3, 1, 0, 0);
 
         current.end_rendering();
 
-        swapchain_images[current_frame].memory_barrier(
-          current,
-          surface_properties.format.format,
-          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        // pipeline barrier for color attachment to transition from color
+        // optimal to present src layout reusing image_memory_barrier variable
+        // to set the new layout transition for the color attachment
+        color_memory_barrier = {
+            .src_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
+            .src_access_mask = vk::v2::access_flags::color_attachment_write_bit,
+            .dst_stage_mask  = vk::v2::pipeline_stage_flags::bottom_of_pipe,
+            .dst_access_mask = vk::v2::access_flags::memory_read_bit,
+            .old_layout = vk::image_layout::color_optimal,
+            .new_layout = vk::image_layout::present_src_khr,
+            .subresource_range = {
+                .aspect_mask = vk::image_aspect_flags::color_bit,
+            },
+        };
+        swapchain_images[current_frame].pipeline_barriers(
+          current, std::views::single(color_memory_barrier));
 
         current.end();
 
@@ -611,11 +412,6 @@ main() {
 
     logical_device.wait();
     main_swapchain.destruct();
-
-    texture1.destruct();
-    set1_resource.destruct();
-    test_ubo.reset();
-    test_model.destruct();
 
     geometry_resource.destruct();
     main_graphics_pipeline.destruct();
@@ -636,6 +432,7 @@ main() {
 
     logical_device.destruct();
     window_surface.destruct();
+
     glfwDestroyWindow(window);
     return 0;
 }
