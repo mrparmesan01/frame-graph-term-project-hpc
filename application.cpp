@@ -1,6 +1,8 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
+#include <functional>
+#include <unordered_map>
 #include <print>
 #include <algorithm>
 #include <cmath>
@@ -8,26 +10,17 @@
 #include <variant>
 #include <array>
 #include <vector>
+#include <string_view>
 #include <queue>
 #include <list>
 #include <expected>
 #include <ranges>
+#include <variant>
 
 import vk;
 import vk_utilities;
-
-
-class rendergraph {
-public:
-    rendergraph() = default;
-
-    // Build and analyze dependencies of the render graph.
-    void compile() {}
-
-    // Takes the primary command buffer that is used to submit GPU workflow here
-    void execute(vk::command_buffer p_command) {}
-private:
-};
+import types;
+import frame_graph;
 
 int main() {
 
@@ -280,6 +273,91 @@ int main() {
     VkClearValue depth_value = {
         .depthStencil = { .depth = 1.f, .stencil = 0 },
     };
+
+
+
+    // Testing grounds for render graph implementation
+
+
+
+
+
+
+    render_graph frame_graph;
+    resource_storage storage;
+    // frame_graph.add_image("color_attachment (image)", swapchain_extent.width, swapchain_extent.height);
+    // frame_graph.add_image("depth_attachment (image)", swapchain_extent.width, swapchain_extent.height, true);
+    // frame_graph.add_buffer("vertex (buffer)", 1024);
+    // frame_graph.allocate();
+    resource_id gbuffer_color_res = storage.add_image("GBuffer Color", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(surface_properties.format.format));
+    resource_id gbuffer_depth_res = storage.add_image("GBuffer Depth", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(depth_format));
+    resource_id shadow_map_res   = storage.add_image("Shadow Map", 2048, 2048, static_cast<vk::format>(depth_format));
+    resource_id final_color_res  = storage.add_image("Final Swapchain Color", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(surface_properties.format.format));
+
+    // 2. Add Shadow Pass (Root pass: writes shadow map)
+    frame_graph.emplace_pass(
+        "Shadow Pass",
+        {},                            // Reads: None
+        // { shadow_map_res },            // Writes: Shadow map
+        std::views::single(shadow_map_res),
+        [&](vk::command_buffer cmd) {
+            std::println("Executing Shadow Pass...");
+            // Record shadow pass commands here
+        }
+    );
+
+    // 3. Add GBuffer Pass (Root pass: writes geometry info / color / depth)
+    std::array<resource_id, 2> geo = {gbuffer_color_res, gbuffer_depth_res};
+    frame_graph.emplace_pass(
+        "GBuffer",
+        {},                            // Reads: None
+        geo, // Writes: GBuffer targets
+        [&](vk::command_buffer cmd) {
+            std::println("Executing GBuffer Pass...");
+            // Record GBuffer geometry pass here using main_graphics_pipeline
+        }
+    );
+
+    // 4. Add Lighting Pass (Depends on GBuffer and Shadow Pass)
+    std::array<resource_id, 3> lighting_reads = {gbuffer_color_res, gbuffer_depth_res, shadow_map_res};
+    std::array<resource_id, 1> lighting_writes = {final_color_res};
+    frame_graph.emplace_pass(
+        "Lighting",
+        lighting_reads, // Reads: GBuffer & Shadows
+        lighting_writes,                                      // Writes: Shaded output
+        [&](vk::command_buffer cmd) {
+            std::println("Executing Lighting Pass...");
+            // Record lighting compute/fullscreen pass here
+        }
+    );
+
+    // 5. Add UI Pass (Depends on Lighting Pass output)
+    std::array<resource_id, 1> ui_reads = {final_color_res};
+    std::array<resource_id, 1> ui_writes = {final_color_res};
+
+    frame_graph.emplace_pass(
+        "UI Pass",
+        ui_reads,           // Reads: Lit image
+        ui_writes,           // Writes: Blends UI over final image
+        [&](vk::command_buffer cmd) {
+            std::println("Executing UI Pass...");
+            // Record UI rendering commands here
+        }
+    );
+
+    void allocate();
+    void compile();
+
+
+
+    frame_graph.print_dependencies();
+
+
+
+
+
+
+
 
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();

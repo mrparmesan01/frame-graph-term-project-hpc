@@ -28,4 +28,6 @@ target_sources(${PROJECT_NAME} PUBLIC
     vertex.cppm
     image.cppm
     obj_model.cppm
+    types.cppm
+    frame_graph.cppm
 )
