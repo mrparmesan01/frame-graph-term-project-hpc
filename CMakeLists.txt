@@ -31,3 +31,5 @@ target_sources(${PROJECT_NAME} PUBLIC
     types.cppm
     frame_graph.cppm
 )
+
+generate_compile_commands()
