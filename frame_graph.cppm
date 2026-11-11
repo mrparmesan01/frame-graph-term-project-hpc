@@ -83,7 +83,7 @@ public:
 
     void emplace_pass(std::string_view p_name, std::span<const uint32_t> p_writes, std::span<const uint32_t> p_reads) {
         renderpass_node pass_node = {
-            .name = p_name.data(),
+            .name = {p_name.data(), p_name.size()},
             .writes = std::vector<uint32_t>(p_writes.begin(), p_writes.end()),
             .reads = std::vector<uint32_t>(p_reads.begin(), p_reads.end()),
         };
