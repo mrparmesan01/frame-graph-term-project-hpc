@@ -1,21 +1,10 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
-#include <functional>
-#include <unordered_map>
 #include <print>
-#include <algorithm>
-#include <cmath>
-#include <span>
-#include <variant>
 #include <array>
-#include <vector>
-#include <string_view>
-#include <queue>
-#include <list>
-#include <expected>
 #include <ranges>
-#include <variant>
+#include <expected>
 
 import vk;
 import vk_utilities;
@@ -283,19 +272,20 @@ int main() {
 
 
 
-    render_graph frame_graph;
+    frame_graph render_graph;
+    /*
     resource_storage storage;
-    // frame_graph.add_image("color_attachment (image)", swapchain_extent.width, swapchain_extent.height);
-    // frame_graph.add_image("depth_attachment (image)", swapchain_extent.width, swapchain_extent.height, true);
-    // frame_graph.add_buffer("vertex (buffer)", 1024);
-    // frame_graph.allocate();
+    // render_graph.add_image("color_attachment (image)", swapchain_extent.width, swapchain_extent.height);
+    // render_graph.add_image("depth_attachment (image)", swapchain_extent.width, swapchain_extent.height, true);
+    // render_graph.add_buffer("vertex (buffer)", 1024);
+    // render_graph.allocate();
     resource_id gbuffer_color_res = storage.add_image("GBuffer Color", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(surface_properties.format.format));
     resource_id gbuffer_depth_res = storage.add_image("GBuffer Depth", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(depth_format));
     resource_id shadow_map_res   = storage.add_image("Shadow Map", 2048, 2048, static_cast<vk::format>(depth_format));
     resource_id final_color_res  = storage.add_image("Final Swapchain Color", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(surface_properties.format.format));
 
     // 2. Add Shadow Pass (Root pass: writes shadow map)
-    frame_graph.emplace_pass(
+    render_graph.emplace_pass(
         "Shadow Pass",
         {},                            // Reads: None
         // { shadow_map_res },            // Writes: Shadow map
@@ -308,7 +298,7 @@ int main() {
 
     // 3. Add GBuffer Pass (Root pass: writes geometry info / color / depth)
     std::array<resource_id, 2> geo = {gbuffer_color_res, gbuffer_depth_res};
-    frame_graph.emplace_pass(
+    render_graph.emplace_pass(
         "GBuffer",
         {},                            // Reads: None
         geo, // Writes: GBuffer targets
@@ -321,7 +311,7 @@ int main() {
     // 4. Add Lighting Pass (Depends on GBuffer and Shadow Pass)
     std::array<resource_id, 3> lighting_reads = {gbuffer_color_res, gbuffer_depth_res, shadow_map_res};
     std::array<resource_id, 1> lighting_writes = {final_color_res};
-    frame_graph.emplace_pass(
+    render_graph.emplace_pass(
         "Lighting",
         lighting_reads, // Reads: GBuffer & Shadows
         lighting_writes,                                      // Writes: Shaded output
@@ -335,7 +325,7 @@ int main() {
     std::array<resource_id, 1> ui_reads = {final_color_res};
     std::array<resource_id, 1> ui_writes = {final_color_res};
 
-    frame_graph.emplace_pass(
+    render_graph.emplace_pass(
         "UI Pass",
         ui_reads,           // Reads: Lit image
         ui_writes,           // Writes: Blends UI over final image
@@ -344,17 +334,34 @@ int main() {
             // Record UI rendering commands here
         }
     );
+    */
 
-    void allocate();
-    void compile();
+    /*
+        
+    
+    GBuffer (0) --->
+            | -> Lighting (2) --> UI (3)
+    Shadow (0) --->
+    
+    
+    
+    */
+    std::array<uint32_t,1> gbuffer_reads = {1};
+    render_graph.emplace_pass("GBuffer", {}, gbuffer_reads);
+
+    std::array<uint32_t, 1> lighting_reads = {3};
+    render_graph.emplace_pass("Lighting", {}, lighting_reads);
+
+    std::array<uint32_t, 1> shadow_reads = {1};
+    render_graph.emplace_pass("Shadow Pass", {}, shadow_reads);
+
+    std::array<uint32_t, 1> ui_writes = {1};
+    render_graph.emplace_pass("UI Pass", ui_writes, {});
 
 
+    render_graph.compile();
 
-    frame_graph.print_dependencies();
-
-
-
-
+    render_graph.print_dependencies();
 
 
 
