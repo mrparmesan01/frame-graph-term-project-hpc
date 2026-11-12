@@ -28,9 +28,8 @@ int main() {
 
     int width = 800;
     int height = 600;
-    std::string title = "Render Graph";
     GLFWwindow* window =
-      glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
+      glfwCreateWindow(width, height, "Render Graph", nullptr, nullptr);
 
     glfwMakeContextCurrent(window);
 
