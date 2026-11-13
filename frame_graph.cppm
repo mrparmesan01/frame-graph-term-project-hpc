@@ -36,9 +36,15 @@ struct renderpass_node {
 class frame_graph {
 public:
 
-    // pass_id emplace_pass(std::string_view p_name, std::span<const resource_id> p_reads, std::span<const resource_id> p_writes, std::function<void(vk::command_buffer)> p_callback) {
-    //     return {};
-    // }
+
+    pass_id emplace_pass(std::string_view p_name, std::span<resource_id> p_reads, std::span<resource_id> p_writes, std::function<void(vk::command_buffer)> p_callback) {
+        pass_id id = m_current_pass_id++;
+        m_name_to_id_table[p_name] = id;
+        pass_description desc = {p_name, id, {p_reads.data(), p_reads.size()}, {p_writes.data(), p_writes.size()}};
+
+        m_execution_commands.emplace_back(p_name, p_callback);
+        return {};
+    }
 
     void emplace_pass(std::string_view p_name, std::span<const uint32_t> p_writes, std::span<const uint32_t> p_reads) {
         renderpass_node pass_node = {
@@ -95,8 +101,9 @@ public:
     }
 
 private:
-    std::vector<renderpass_node> m_passes{};
-    std::vector<renderpass_node> m_execution_order;
+    pass_id m_current_pass_id=0;
+    std::unordered_map<std::string_view, pass_id> m_name_to_id_table;
+    std::unordered_map<pass_id, std::function<void(vk::command_buffer)> m_execute_commands;
 };
 
 };

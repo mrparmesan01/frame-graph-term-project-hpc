@@ -35,14 +35,13 @@ export {
     };
 
     struct pass_description {
-        pass_description(std::string_view p_name, pass_id p_id, std::span<const resource_id> p_reads, std::span<const resource_id> p_writes, std::function<void(vk::command_buffer)> p_task) :
-                name(p_name), id(p_id), reads(p_reads.begin(), p_reads.end()), writes(p_writes.begin(), p_writes.end()), task(std::move(p_task)){
+        pass_description(std::string_view p_name, pass_id p_id, std::span<const resource_id> p_reads, std::span<const resource_id> p_writes) :
+                name(p_name), id(p_id), reads(p_reads.begin(), p_reads.end()), writes(p_writes.begin(), p_writes.end()){
 
         }
         std::string name;
         pass_id id;
         std::vector<resource_id> reads;
         std::vector<resource_id> writes;
-        std::function<void(vk::command_buffer)> task;
     };
 }
