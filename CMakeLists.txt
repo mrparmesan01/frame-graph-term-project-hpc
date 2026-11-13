@@ -24,6 +24,7 @@ target_sources(${PROJECT_NAME} PUBLIC
     FILE_SET CXX_MODULES
     TYPE CXX_MODULES
     FILES
+    resource_storage.cppm
     vk_utilities.cppm
     vertex.cppm
     image.cppm

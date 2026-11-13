@@ -357,7 +357,6 @@ int main() {
     std::array<uint32_t, 1> ui_writes = {1};
     render_graph.emplace_pass("UI Pass", ui_writes, {});
 
-
     render_graph.compile();
 
     render_graph.print_dependencies();
