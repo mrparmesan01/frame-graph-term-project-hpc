@@ -24,7 +24,21 @@ public:
     resource_storage(vk::device p_device, vk::physical_device p_physical) : m_device(p_device), m_physical(p_physical) {}
 
     ~resource_storage() = default;
-    
+
+    /**
+     * @brief 
+     * 
+     * @param p_name 
+     * @param p_width 
+     * @param p_height 
+     * @param p_format 
+     * @param p_property_flags 
+     * @return resource_id 
+     *
+     * Example Usage:
+     * ```C++
+     * storage.add_image("HDRI", 1024, 1024, surface.format.format, vk::memory_property::device_local_bit);
+     */
     resource_id add_image(std::string_view p_name, uint32_t p_width, uint32_t p_height, vk::format p_format, vk::memory_property p_property_flags) {
         resource_id id = m_current_resource_id++;
 
@@ -55,10 +69,18 @@ public:
      * @tparam T 
      * @param p_name 
      * @return resource_id 
+     * 
+     * Example Usage:
+     * ```C++
+     * storage.add_buffer("PBR", vk::memory_property::device_local_bit | vk::memory_property::host_visible_bit, vk::buffer_usage::transfer_dst_bit);
      */
     template<typename T>
     resource_id add_buffer(std::string_view p_name, vk::memory_property p_property_flags, vk::buffer_usage p_usage) {
         resource_id id = m_current_resource_id++;
+
+        // .usage = vk::buffer_usage::uniform_buffer_bit |
+        //          vk::buffer_usage::shader_device_address_bit,
+        // .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
 
         vk::buffer_parameters buffer_params = {
             // .memory_mask = m_physical.memory_properties(
@@ -67,7 +89,8 @@ public:
             .memory_mask = m_physical.memory_properties(p_property_flags),
             // .usage = vk::buffer_usage::transfer_dst_bit |
             //          vk::buffer_usage::vertex_buffer_bit,
-            .usage = p_usage,
+            .usage = p_usage | vk::buffer_usage::shader_device_address_bit,
+            .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
         };
 
         m_resource_table[p_name] = id;
@@ -77,7 +100,18 @@ public:
         return id;
     }
 
-    std::optional<vk::buffer> get_buffer(std::string_view p_name) {
+    /**
+     * @brief Get the buffer object
+     * 
+     * Example Usage:
+     * ```C++
+     * auto opt = storage.get_buffer("PBR");
+     ```
+     * 
+     * @param p_name 
+     * @return std::optional<vk::buffer> 
+     */
+    std::optional<vk::dyn::buffer> get_buffer(std::string_view p_name) {
 
         resource_id id = -1;
 
@@ -113,7 +147,7 @@ private:
 
     std::unordered_map<resource_id, vk::sample_image> m_images;
 
-    std::unordered_map<resource_id, vk::buffer> m_buffers;
+    std::unordered_map<resource_id, vk::dyn::buffer> m_buffers;
 
     // <name, resource_id> for looking up for specific resource to retrieve the specific resources.
     std::unordered_map<std::string_view, resource_id> m_resource_table;
