@@ -18,6 +18,7 @@ module;
 #include <expected>
 #include <ranges>
 #include <variant>
+#include <unordered_set>
 
 export module frame_graph;
 
@@ -42,49 +43,71 @@ public:
         m_name_to_id_table[p_name] = id;
         pass_description desc = {p_name, id, {p_reads.data(), p_reads.size()}, {p_writes.data(), p_writes.size()}};
 
-        m_execution_commands.emplace_back(p_name, p_callback);
-        return {};
-    }
-
-    void emplace_pass(std::string_view p_name, std::span<const uint32_t> p_writes, std::span<const uint32_t> p_reads) {
-        renderpass_node pass_node = {
-            .name = {p_name.data(), p_name.size()},
-            .writes = std::vector<uint32_t>(p_writes.begin(), p_writes.end()),
-            .reads = std::vector<uint32_t>(p_reads.begin(), p_reads.end()),
-        };
-
-        m_passes.emplace_back(pass_node);
+        m_passes.emplace_back(desc);
+        m_execute_commands.emplace(id, p_callback);
+        return id;
     }
 
 
 
     void compile() {
         std::println("Analyzing Dependencies!");
+
         m_execution_order.reserve(m_passes.size());
+        std::vector<std::unordered_set<pass_id>> adjacency_list(m_passes.size());
+        std::unordered_map<resource_id, pass_id> resource_producer;
+        std::vector<uint32_t> indegrees(m_passes.size());
+        std::queue<uint32_t> zero_indegrees;
 
-        std::queue<uint32_t> zero_indegree_queue;
-
-        for(uint32_t i = 0; i < m_passes.size(); i++) {
-            m_passes[i].indegree = m_passes[i].writes.size();
-
-            if(m_passes[i].indegree == 0) {
-                zero_indegree_queue.push(i);
+        for(const auto& pass : m_passes) {
+            for(auto w : pass.writes) {
+                resource_producer[w] = pass.id;
             }
         }
 
-        while(!zero_indegree_queue.empty()) {
-            uint32_t current = zero_indegree_queue.front();
-            zero_indegree_queue.pop();
-
-            m_execution_order.push_back(m_passes[current]);
-
-            for(uint32_t successor : m_passes[current].reads) {
-                m_passes[successor].indegree--;
-
-                if(m_passes[successor].indegree == 0) {
-                    zero_indegree_queue.push(successor);
+        for(const auto& pass : m_passes) {
+            for(auto r : pass.reads) {
+                if(resource_producer.contains(r)) {
+                    pass_id producer = resource_producer[r];
+                    if(producer != pass.id) {
+                        adjacency_list[producer].insert(pass.id);
+                    }
                 }
             }
+        }
+
+        for(size_t i = 0; i < m_passes.size(); i++) {
+            for(const auto& succ : adjacency_list[i]) {
+                indegrees[succ]++;
+            }
+        }
+
+        for(size_t i = 0; i < m_passes.size(); i++) {
+            if(indegrees[i] == 0) {
+                zero_indegrees.push(i);
+            }
+        }
+
+        while(!zero_indegrees.empty()) {
+            pass_id current = zero_indegrees.front();
+            zero_indegrees.pop();
+
+            for(const auto& pass : m_passes) {
+                if(pass.id == current) {
+                    m_execution_order.push_back(pass);
+                    break;
+                }
+            }
+
+            for(pass_id successor : adjacency_list[current]) {
+                if(indegrees[successor]-- == 0) {
+                    zero_indegrees.push(successor);
+                }
+            }
+        }
+
+        if(m_execution_order.size() != m_passes.size()) {
+            std::println("Render graph cycle detected!");
         }
     }
 
@@ -97,13 +120,16 @@ public:
             std::print("{} | ", renderpass.name);
         }
 
+
         std::println();
     }
 
 private:
     pass_id m_current_pass_id=0;
     std::unordered_map<std::string_view, pass_id> m_name_to_id_table;
-    std::unordered_map<pass_id, std::function<void(vk::command_buffer)> m_execute_commands;
+    std::unordered_map<pass_id, std::function<void(vk::command_buffer)>> m_execute_commands;
+    std::vector<pass_description> m_passes;
+    std::vector<pass_description> m_execution_order;
 };
 
 };

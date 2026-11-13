@@ -9,6 +9,7 @@
 import vk;
 import vk_utilities;
 import types;
+import resource_storage;
 import frame_graph;
 
 int main() {
@@ -345,18 +346,39 @@ int main() {
     
     
     */
-    std::array<uint32_t,1> gbuffer_reads = {1};
-    render_graph.emplace_pass("GBuffer", {}, gbuffer_reads);
+    // std::array<uint32_t,1> gbuffer_reads = {1};
+    // render_graph.emplace_pass("GBuffer", {}, gbuffer_reads);
 
-    std::array<uint32_t, 1> lighting_reads = {3};
-    render_graph.emplace_pass("Lighting", {}, lighting_reads);
+    // std::array<uint32_t, 1> lighting_reads = {3};
+    // render_graph.emplace_pass("Lighting", {}, lighting_reads);
 
-    std::array<uint32_t, 1> shadow_reads = {1};
-    render_graph.emplace_pass("Shadow Pass", {}, shadow_reads);
+    // std::array<uint32_t, 1> shadow_reads = {1};
+    // render_graph.emplace_pass("Shadow Pass", {}, shadow_reads);
 
-    std::array<uint32_t, 1> ui_writes = {1};
-    render_graph.emplace_pass("UI Pass", ui_writes, {});
+    // std::array<uint32_t, 1> ui_writes = {1};
+    // render_graph.emplace_pass("UI Pass", ui_writes, {});
 
+
+    resource_storage storage(logical_device, physical_device);
+
+    vk::image_params image_params = {};
+    resource_id gbuffer_albedo = storage.add_image("GBuffer_albedo", width, height, vk::format::r8g8b8a8_unorm, vk::memory_property::device_local_bit);
+    resource_id gbuffer_depth_stencil = storage.add_image("Depth Stencil", width, height, vk::format::r8g8b8a8_unorm, vk::memory_property::device_local_bit);
+
+    std::array<resource_id, 2> gbuffer_writes = {gbuffer_albedo, gbuffer_depth_stencil};
+    render_graph.emplace_pass("GBuffer", {}, gbuffer_writes, [](vk::command_buffer p_command) {
+
+    });
+
+    struct scene_data {};
+    vk::buffer_parameters buf_params = {};
+    resource_id lighting_buffer = storage.add_buffer<2048>("Lighting", vk::memory_property::device_local_bit, vk::buffer_usage::storage_buffer_bit);
+
+    std::array<resource_id, 1> lighting_reads = {gbuffer_albedo};
+    std::array<resource_id, 1> lighting_writes = {lighting_buffer};
+    render_graph.emplace_pass("Lighting", lighting_reads, lighting_writes, [](vk::command_buffer p_command) {
+        
+    });
     render_graph.compile();
 
     render_graph.print_dependencies();
@@ -510,6 +532,8 @@ int main() {
     for (auto& image : swapchain_depth_images) {
         image.destruct();
     }
+
+    storage.destroy();
 
     presentation_queue.destruct();
 

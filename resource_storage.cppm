@@ -74,7 +74,7 @@ public:
      * ```C++
      * storage.add_buffer("PBR", vk::memory_property::device_local_bit | vk::memory_property::host_visible_bit, vk::buffer_usage::transfer_dst_bit);
      */
-    template<typename T>
+    template<size_t T>
     resource_id add_buffer(std::string_view p_name, vk::memory_property p_property_flags, vk::buffer_usage p_usage) {
         resource_id id = m_current_resource_id++;
 
@@ -137,6 +137,16 @@ public:
         }
 
         return {};
+    }
+
+    void destroy() {
+        for(auto&[key, img] : m_images) {
+            img.destruct();
+        }
+
+        for(auto&[key, buf] : m_buffers) {
+            buf.reset();
+        }
     }
 
 private:
