@@ -367,7 +367,7 @@ int main() {
 
     std::array<resource_id, 2> gbuffer_writes = {gbuffer_albedo, gbuffer_depth_stencil};
     render_graph.emplace_pass("GBuffer", {}, gbuffer_writes, [](vk::command_buffer p_command) {
-
+        std::println("Executing GBuffer!!!");
     });
 
     struct scene_data {};
@@ -377,7 +377,7 @@ int main() {
     std::array<resource_id, 1> lighting_reads = {gbuffer_albedo};
     std::array<resource_id, 1> lighting_writes = {lighting_buffer};
     render_graph.emplace_pass("Lighting", lighting_reads, lighting_writes, [](vk::command_buffer p_command) {
-        
+        std::println("Executing Lighting");
     });
     render_graph.compile();
 
@@ -486,6 +486,9 @@ int main() {
         current.begin_rendering(begin_params);
 
         main_graphics_pipeline.bind(current);
+
+
+        render_graph.execute(current);
         vkCmdDraw(current, 3, 1, 0, 0);
 
         current.end_rendering();

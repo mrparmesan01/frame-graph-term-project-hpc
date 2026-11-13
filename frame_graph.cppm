@@ -100,7 +100,7 @@ public:
             }
 
             for(pass_id successor : adjacency_list[current]) {
-                if(indegrees[successor]-- == 0) {
+                if(--indegrees[successor] == 0) {
                     zero_indegrees.push(successor);
                 }
             }
@@ -111,7 +111,13 @@ public:
         }
     }
 
-    void execute(vk::command_buffer p_command) {}
+    void execute(vk::command_buffer p_command) {
+        for(const auto& pass : m_execution_order) {
+            if(m_execute_commands.contains(pass.id)) {
+                m_execute_commands.at(pass.id)(p_command);
+            }
+        }
+    }
 
     void print_dependencies() {
         std::println("Printing frame_graph dependencies!");
