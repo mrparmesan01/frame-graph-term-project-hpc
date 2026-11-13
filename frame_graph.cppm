@@ -24,6 +24,7 @@ export module frame_graph;
 
 import vk;
 import types;
+import resource_storage;
 
 export {
 
@@ -38,7 +39,7 @@ class frame_graph {
 public:
 
 
-    pass_id emplace_pass(std::string_view p_name, std::span<resource_id> p_reads, std::span<resource_id> p_writes, std::function<void(vk::command_buffer)> p_callback) {
+    pass_id emplace_pass(std::string_view p_name, std::span<resource_id> p_reads, std::span<resource_id> p_writes, std::function<void(vk::command_buffer, resource_storage&)> p_callback) {
         pass_id id = m_current_pass_id++;
         m_name_to_id_table[p_name] = id;
         pass_description desc = {p_name, id, {p_reads.data(), p_reads.size()}, {p_writes.data(), p_writes.size()}};
@@ -111,10 +112,10 @@ public:
         }
     }
 
-    void execute(vk::command_buffer p_command) {
+    void execute(vk::command_buffer p_command, resource_storage& p_storage) {
         for(const auto& pass : m_execution_order) {
             if(m_execute_commands.contains(pass.id)) {
-                m_execute_commands.at(pass.id)(p_command);
+                m_execute_commands.at(pass.id)(p_command, p_storage);
             }
         }
     }
@@ -133,7 +134,7 @@ public:
 private:
     pass_id m_current_pass_id=0;
     std::unordered_map<std::string_view, pass_id> m_name_to_id_table;
-    std::unordered_map<pass_id, std::function<void(vk::command_buffer)>> m_execute_commands;
+    std::unordered_map<pass_id, std::function<void(vk::command_buffer, resource_storage&)>> m_execute_commands;
     std::vector<pass_description> m_passes;
     std::vector<pass_description> m_execution_order;
 };

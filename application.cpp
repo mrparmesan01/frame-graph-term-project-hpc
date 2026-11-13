@@ -366,8 +366,15 @@ int main() {
     resource_id gbuffer_depth_stencil = storage.add_image("Depth Stencil", width, height, vk::format::r8g8b8a8_unorm, vk::memory_property::device_local_bit);
 
     std::array<resource_id, 2> gbuffer_writes = {gbuffer_albedo, gbuffer_depth_stencil};
-    render_graph.emplace_pass("GBuffer", {}, gbuffer_writes, [](vk::command_buffer p_command) {
-        std::println("Executing GBuffer!!!");
+    render_graph.emplace_pass("GBuffer", {}, gbuffer_writes, [&](vk::command_buffer p_command, resource_storage& p_storage) {
+
+        auto albedo_opt = p_storage.get_image("GBuffer_albedo");
+        auto depth_opt = p_storage.get_image("Depth Stencil");
+
+        if(albedo_opt and depth_opt) {
+            main_graphics_pipeline.bind(p_command);
+            vkCmdDraw(p_command, 3, 1, 0, 0);
+        }
     });
 
     struct scene_data {};
@@ -376,8 +383,7 @@ int main() {
 
     std::array<resource_id, 1> lighting_reads = {gbuffer_albedo};
     std::array<resource_id, 1> lighting_writes = {lighting_buffer};
-    render_graph.emplace_pass("Lighting", lighting_reads, lighting_writes, [](vk::command_buffer p_command) {
-        std::println("Executing Lighting");
+    render_graph.emplace_pass("Lighting", lighting_reads, lighting_writes, [](vk::command_buffer p_command, resource_storage&) {
     });
     render_graph.compile();
 
@@ -484,12 +490,8 @@ int main() {
           0, 1, std::span<const vk::scissor_params>(&scissor, 1));
 
         current.begin_rendering(begin_params);
-
-        main_graphics_pipeline.bind(current);
-
-
-        render_graph.execute(current);
-        vkCmdDraw(current, 3, 1, 0, 0);
+        
+        render_graph.execute(current, storage);
 
         current.end_rendering();
 
