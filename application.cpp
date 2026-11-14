@@ -363,27 +363,40 @@ int main() {
         if(albedo_opt and depth_opt) {
             auto albedo = albedo_opt.value();
             auto depth = depth_opt.value();
-            // main_graphics_pipeline.bind(p_command);
-            // vkCmdDraw(p_command, 3, 1, 0, 0);
 
-            // albedo.pipeline_barriers(
-            //     p_command, static_cast<VkFormat>(vk::format::r8g8b8a8_unorm),
-            //     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            //     VK_IMAGE_ASPECT_COLOR_BIT, 1
-            // );
-            albedo.pipeline_barriers(
-                p_command, static_cast<VkFormat>(surface_properties.format.format),
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                VK_IMAGE_ASPECT_COLOR_BIT, 1
-            );
+            // Because dynamic rendering does not automatically handle layout
+            // transitions These memory barriers set the color and depth images for
+            // the output
+            vk::v2::image_memory_barrier albedo_barrier = {
+                .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
+                .src_access_mask = vk::v2::access_flags::memory_read_bit,
+                .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
+                .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit,
+                .old_layout      = vk::image_layout::undefined,
+                .new_layout      = vk::image_layout::color_optimal,
+                .subresource_range = {
+                    .aspect_mask = vk::image_aspect_flags::color_bit,
+                    .level_count = 1,
+                    .layer_count = 1,
+                },
+            };
+            albedo.pipeline_barriers(p_command, std::views::single(albedo_barrier));
 
-            depth.pipeline_barriers(
-                p_command, static_cast<VkFormat>(depth_format),
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 1
-            );
+            vk::v2::image_memory_barrier depth_barrier = {
+                .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
+                .src_access_mask = vk::v2::access_flags::memory_read_bit,
+                .dst_stage_mask  = vk::v2::pipeline_stage_flags::early_fragment_shader_bit,
+                .dst_access_mask = vk::v2::access_flags::depth_stencil_attachment_write_bit,
+                .old_layout      = vk::image_layout::undefined,
+                .new_layout      = vk::image_layout::depth_stencil_optimal,
+                .subresource_range = {
+                    .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit,
+                    .level_count = 1,
+                    .layer_count = 1,
+                },
+            };
+            depth.pipeline_barriers(p_command, std::views::single(depth_barrier));
 
-            // 2. Setup Dynamic Rendering Attachments
             vk::rendering_attachment color_render_attachment = {
                 .image_view = albedo.image_view(),
                 .layout = vk::image_layout::color_optimal,
@@ -428,8 +441,9 @@ int main() {
         auto albedo_opt = p_storage.get_image("GBuffer_albedo");
         VkFormat swapchain_format = surface_properties.format.format;
 
-        if(albedo_opt and depth_opt) {
+        if(albedo_opt) {
             auto albedo = albedo_opt.value();
+
             vk::v2::image_memory_barrier albedo_transfer_barrier = {
                 .src_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
                 .src_access_mask = vk::v2::access_flags::color_attachment_write_bit,
@@ -450,19 +464,6 @@ int main() {
                 .subresource_range = { .aspect_mask = vk::image_aspect_flags::color_bit },
             };
             swapchain_img->pipeline_barriers(p_command, std::views::single(swapchain_dst_barrier));
-
-            // vk::v2::image_memory_barrier depth_transition_barrier = {
-            //     .src_stage_mask  = vk::v2::pipeline_stage_flags::late_fragment_tests_bit,
-            //     .src_access_mask = vk::v2::access_flags::depth_stencil_attachment_write_bit,
-            //     .dst_stage_mask  = vk::v2::pipeline_stage_flags::bottom_of_pipe,
-            //     .dst_access_mask = vk::v2::access_flags::memory_read_bit,
-            //     .old_layout      = vk::image_layout::depth_stencil_optimal,
-            //     .new_layout      = vk::image_layout::depth_stencil_read_only_optimal,
-            //     .subresource_range = { 
-            //         .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit 
-            //     },
-            // };
-            // swapchain_depth_img->pipeline_barriers(p_command, std::views::single(depth_transition_barrier));
 
             VkImageBlit blit_region{};
             blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -510,79 +511,6 @@ int main() {
 
         current.begin(vk::command_usage::simulatneous_use_bit);
 
-        // Because dynamic rendering does not automatically handle layout
-        // transitions These memory barriers set the color and depth images for
-        // the output
-
-        // pipeline barrier for color attachment to transition from undefined to
-        // color optimal layout
-        /*
-        vk::v2::image_memory_barrier color_memory_barrier = {
-            .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
-            .src_access_mask = vk::v2::access_flags::memory_read_bit,
-            .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
-            .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit,
-            .old_layout = vk::image_layout::undefined,
-            .new_layout = vk::image_layout::color_optimal,
-            .subresource_range = {
-                .aspect_mask = vk::image_aspect_flags::color_bit,
-            },
-        };
-        swapchain_images[current_frame].pipeline_barriers(
-          current, std::views::single(color_memory_barrier));
-
-        // pipeline barrier for depth attachment to transition from undefined to
-        // depth optimal layout
-        vk::v2::image_memory_barrier image_depth_memory_barrier = {
-            .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
-            .src_access_mask = vk::v2::access_flags::memory_read_bit,
-            .dst_stage_mask  = vk::v2::pipeline_stage_flags::early_fragment_shader_bit,
-            .dst_access_mask = vk::v2::access_flags::depth_stencil_attachment_write_bit,
-            .old_layout = vk::image_layout::undefined,
-            .new_layout = vk::image_layout::depth_stencil_optimal,
-            .subresource_range = {
-                .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit,
-            },
-        };
-        swapchain_depth_images[current_frame].pipeline_barriers(
-          current, std::views::single(image_depth_memory_barrier));
-
-        vk::rendering_attachment color_render_attachment = {
-            .image_view = swapchain_images[current_frame].image_view(),
-            .layout = vk::image_layout::color_optimal,
-            .resolve_mode = vk::resolved_mode_flags::none,
-            .resolve_image_view = nullptr,
-            .resolve_image_layout = vk::image_layout::undefined,
-            .load = vk::attachment_load::clear,
-            .store = vk::attachment_store::store,
-            .clear_values = clear_color
-        };
-
-        vk::rendering_attachment depth_stencil_attachment = {
-            .image_view = swapchain_depth_images[current_frame].image_view(),
-            .layout = vk::image_layout::depth_stencil_optimal,
-            .resolve_mode = vk::resolved_mode_flags::none,
-            .resolve_image_view = nullptr,
-            .resolve_image_layout = vk::image_layout::undefined,
-            .load = vk::attachment_load::clear,
-            .store = vk::attachment_store::store,
-            .depth_values = depth_value
-        };
-
-        vk::rendering_begin_parameters begin_params = {
-            .render_area = { { 0, 0 },
-                             {
-                               swapchain_extent.width,
-                               swapchain_extent.height,
-                             }, },
-            .layer_count = 1,
-            .color_attachments = std::span<const vk::rendering_attachment>(
-              &color_render_attachment, 1),
-            .depth_attachment = depth_stencil_attachment,
-            .stencil_attachment = depth_stencil_attachment,
-        };
-        */
-
         vk::viewport_params viewport = {
             .x = 0.0f,
             .y = 0.0f,
@@ -591,7 +519,6 @@ int main() {
             .min_depth = 0.0f,
             .max_depth = 1.0f,
         };
-
         current.set_viewport(
           0, 1, std::views::single(viewport));
 
@@ -599,32 +526,11 @@ int main() {
             .offset = { 0, 0 },
             .extent = swapchain_extent,
         };
-
         current.set_scissor(
           0, 1, std::views::single(scissor));
 
-        // current.begin_rendering(begin_params);
         
         render_graph.execute2(current, storage);
-
-        // current.end_rendering();
-
-        // pipeline barrier for color attachment to transition from color
-        // optimal to present src layout reusing image_memory_barrier variable
-        // to set the new layout transition for the color attachment
-        // color_memory_barrier = {
-        //     .src_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
-        //     .src_access_mask = vk::v2::access_flags::color_attachment_write_bit,
-        //     .dst_stage_mask  = vk::v2::pipeline_stage_flags::bottom_of_pipe,
-        //     .dst_access_mask = vk::v2::access_flags::memory_read_bit,
-        //     .old_layout = vk::image_layout::color_optimal,
-        //     .new_layout = vk::image_layout::present_src_khr,
-        //     .subresource_range = {
-        //         .aspect_mask = vk::image_aspect_flags::color_bit,
-        //     },
-        // };
-        // swapchain_images[current_frame].pipeline_barriers(
-        //   current, std::views::single(color_memory_barrier));
 
         current.end();
 
