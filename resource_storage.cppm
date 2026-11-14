@@ -39,7 +39,7 @@ public:
      * ```C++
      * storage.add_image("HDRI", 1024, 1024, surface.format.format, vk::memory_property::device_local_bit);
      */
-    resource_id add_image(std::string_view p_name, uint32_t p_width, uint32_t p_height, vk::format p_format, vk::memory_property p_property_flags) {
+    resource_id add_image(std::string_view p_name, uint32_t p_width, uint32_t p_height, vk::format p_format, vk::memory_property p_property_flags, vk::image_usage p_usage, vk::image_aspect_flags p_aspect=vk::image_aspect_flags::color_bit) {
         resource_id id = m_current_resource_id++;
 
         VkFormat format = static_cast<VkFormat>(p_format);
@@ -50,8 +50,8 @@ public:
             // .memory_mask = m_physical.memory_properties(
             //   vk::memory_property::device_local_bit),
             .memory_mask = m_physical.memory_properties(p_property_flags),
-            .aspect = vk::image_aspect_flags::color_bit,
-            .usage = vk::image_usage::color_attachment_bit,
+            .aspect = p_aspect,
+            .usage = p_usage,
             .mip_levels = 1,
             .layer_count = 1,
         };

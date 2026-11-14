@@ -120,6 +120,49 @@ public:
         }
     }
 
+    void execute2(vk::command_buffer p_command, resource_storage& p_storage) {
+        for(const auto& pass : m_execution_order) {
+            for(auto write : pass.writes) {
+                auto img_opt = p_storage.get_image(pass.name);
+                if(img_opt.has_value()) {
+                    auto old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+                    auto new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+                    if(old_layout != new_layout) {
+                        auto img = img_opt.value();
+                        img_opt->pipeline_barriers(
+                            p_command,
+                            static_cast<VkFormat>(vk::format::r8g8b8a8_unorm), // Match format or query from storage
+                            old_layout,
+                            new_layout,
+                            VK_IMAGE_ASPECT_COLOR_BIT,
+                            1
+                        );
+                    }
+                }
+            }
+
+            for(auto read : pass.reads) {
+                auto img_opt = p_storage.get_image(pass.name);
+                if(img_opt.has_value()) {
+                    auto img = img_opt.value();
+                    img.pipeline_barriers(
+                        p_command,
+                        static_cast<VkFormat>(vk::format::r8g8b8a8_unorm),
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        1
+                    );
+                }
+            }
+
+            if(m_execute_commands.contains(pass.id)) {
+                m_execute_commands.at(pass.id)(p_command, p_storage);
+            }
+        }
+    }
+
     void print_dependencies() {
         std::println("Printing frame_graph dependencies!");
 
