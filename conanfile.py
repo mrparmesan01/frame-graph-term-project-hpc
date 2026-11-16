@@ -21,6 +21,7 @@ class Demo(ConanFile):
         self.requires("stb/cci.20230920")
         self.requires("tinyobjloader/2.0.0-rc10")
         self.requires("vulkan-cpp/6.3")
+        self.requires("flecs/4.0.4")
 
     def build(self):
         cmake = CMake(self)
