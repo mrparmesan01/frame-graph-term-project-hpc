@@ -12,14 +12,15 @@ import types;
 import resource_storage;
 import frame_graph;
 
-int main() {
+int
+main() {
 
-    if(!glfwInit()) {
+    if (!glfwInit()) {
         std::println("GLFW Error: glfwInit could not be initialized!\n");
         return -1;
     }
 
-    if(!glfwVulkanSupported()) {
+    if (!glfwVulkanSupported()) {
         std::println("GLFW Error: Vulkan is not supported!");
         return -1;
     }
@@ -40,7 +41,6 @@ int main() {
 
     auto global_extensions = get_instance_extensions();
 
-
     vk::debug_message_utility debug_callback_info = {
         .severity =
           vk::message::verbose | vk::message::warning | vk::message::error,
@@ -52,25 +52,25 @@ int main() {
     vk::application_params config = {
         .name = "vulkan instance",
         .version = vk::api_version::vk_1_3, // specify to using vulkan 1.3
-        .validations =
-          validation_layers,
-        .extensions =
-          global_extensions
+        .validations = validation_layers,
+        .extensions = global_extensions
     };
 
     // 1. Setting up vk instance
     vk::instance api_instance(config, debug_callback_info);
 
-    if(api_instance.alive()) {
+    if (api_instance.alive()) {
         std::println("vk::instance is initialized!!");
     }
 
 #if __APPLE__
-    std::expected<vk::physical_device, VkResult> res = api_instance.enumerate_physical_device(vk::physical_gpu::integrated);
+    std::expected<vk::physical_device, VkResult> res =
+      api_instance.enumerate_physical_device(vk::physical_gpu::integrated);
 #else
-    std::expected<vk::physical_device, VKResult> res = api_instance.enumerate_physical_device(vk::physical_gpu::discrete);
+    std::expected<vk::physical_device, VKResult> res =
+      api_instance.enumerate_physical_device(vk::physical_gpu::discrete);
 #endif
-    
+
     vk::physical_device physical_device = res.value();
 
     std::array<float, 1> priorities = { 0.f };
@@ -94,7 +94,8 @@ int main() {
 
     // We provide a selection of format support that we want to check is
     // supported on current hardware device.
-    VkFormat depth_format = physical_device.request_depth_format(format_support);
+    VkFormat depth_format =
+      physical_device.request_depth_format(format_support);
 
     vk::device_features device_features{
         vk::dynamic_rendering_feature{ {
@@ -134,10 +135,17 @@ int main() {
         .height = static_cast<uint32_t>(height),
         .present_index = 0,
     };
+
+    // (image_usage::transfer_src_bit | image_usage::transfer_dst_bit) required
+    // for blitting/copying an image to swapchain_image
+    vk::image_usage swapchain_usage = vk::image_usage::color_attachment_bit |
+                                      vk::image_usage::transfer_src_bit |
+                                      vk::image_usage::transfer_dst_bit;
     vk::swapchain main_swapchain(logical_device,
                                  window_surface,
                                  enumerate_swapchain_settings,
-                                 surface_properties);
+                                 surface_properties,
+                                 swapchain_usage);
 
     // querying presentable images
     std::span<const VkImage> images = main_swapchain.get_images();
@@ -160,7 +168,8 @@ int main() {
             .memory_mask = physical_device.memory_properties(
               vk::memory_property::device_local_bit),
             .aspect = vk::image_aspect_flags::color_bit,
-            .usage = (vk::image_usage::color_attachment_bit | vk::image_usage::transfer_dst_bit),
+            .usage = (vk::image_usage::color_attachment_bit |
+                      vk::image_usage::transfer_dst_bit),
             .mip_levels = 1,
             .layer_count = 1,
         };
@@ -263,126 +272,75 @@ int main() {
         .depthStencil = { .depth = 1.f, .stencil = 0 },
     };
 
-
-
     // Testing grounds for render graph implementation
 
-
-
-
-
-
     frame_graph render_graph;
-    /*
-    resource_storage storage;
-    // render_graph.add_image("color_attachment (image)", swapchain_extent.width, swapchain_extent.height);
-    // render_graph.add_image("depth_attachment (image)", swapchain_extent.width, swapchain_extent.height, true);
-    // render_graph.add_buffer("vertex (buffer)", 1024);
-    // render_graph.allocate();
-    resource_id gbuffer_color_res = storage.add_image("GBuffer Color", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(surface_properties.format.format));
-    resource_id gbuffer_depth_res = storage.add_image("GBuffer Depth", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(depth_format));
-    resource_id shadow_map_res   = storage.add_image("Shadow Map", 2048, 2048, static_cast<vk::format>(depth_format));
-    resource_id final_color_res  = storage.add_image("Final Swapchain Color", swapchain_extent.width, swapchain_extent.height, static_cast<vk::format>(surface_properties.format.format));
-
-    // 2. Add Shadow Pass (Root pass: writes shadow map)
-    render_graph.emplace_pass(
-        "Shadow Pass",
-        {},                            // Reads: None
-        // { shadow_map_res },            // Writes: Shadow map
-        std::views::single(shadow_map_res),
-        [&](vk::command_buffer cmd) {
-            std::println("Executing Shadow Pass...");
-            // Record shadow pass commands here
-        }
-    );
-
-    // 3. Add GBuffer Pass (Root pass: writes geometry info / color / depth)
-    std::array<resource_id, 2> geo = {gbuffer_color_res, gbuffer_depth_res};
-    render_graph.emplace_pass(
-        "GBuffer",
-        {},                            // Reads: None
-        geo, // Writes: GBuffer targets
-        [&](vk::command_buffer cmd) {
-            std::println("Executing GBuffer Pass...");
-            // Record GBuffer geometry pass here using main_graphics_pipeline
-        }
-    );
-
-    // 4. Add Lighting Pass (Depends on GBuffer and Shadow Pass)
-    std::array<resource_id, 3> lighting_reads = {gbuffer_color_res, gbuffer_depth_res, shadow_map_res};
-    std::array<resource_id, 1> lighting_writes = {final_color_res};
-    render_graph.emplace_pass(
-        "Lighting",
-        lighting_reads, // Reads: GBuffer & Shadows
-        lighting_writes,                                      // Writes: Shaded output
-        [&](vk::command_buffer cmd) {
-            std::println("Executing Lighting Pass...");
-            // Record lighting compute/fullscreen pass here
-        }
-    );
-
-    // 5. Add UI Pass (Depends on Lighting Pass output)
-    std::array<resource_id, 1> ui_reads = {final_color_res};
-    std::array<resource_id, 1> ui_writes = {final_color_res};
-
-    render_graph.emplace_pass(
-        "UI Pass",
-        ui_reads,           // Reads: Lit image
-        ui_writes,           // Writes: Blends UI over final image
-        [&](vk::command_buffer cmd) {
-            std::println("Executing UI Pass...");
-            // Record UI rendering commands here
-        }
-    );
-    */
 
     /*
-        
-    
+
+
     GBuffer (0) --->
             | -> Lighting (2) --> UI (3)
     Shadow (0) --->
-    
-    
-    
+
+
+
     */
 
     resource_storage storage(logical_device, physical_device);
 
     vk::image_params image_params = {};
-    resource_id gbuffer_albedo = storage.add_image("GBuffer_albedo", width, height, static_cast<vk::format>(surface_properties.format.format), vk::memory_property::device_local_bit, vk::image_usage::color_attachment_bit | vk::image_usage::transfer_src_bit);
-    resource_id gbuffer_depth_stencil = storage.add_image("Depth Stencil", width, height, static_cast<vk::format>(depth_format), vk::memory_property::device_local_bit, vk::image_usage::depth_stencil_bit, vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit);
+    resource_id gbuffer_albedo = storage.add_image(
+      "GBuffer_albedo",
+      width,
+      height,
+      static_cast<vk::format>(surface_properties.format.format),
+      vk::memory_property::device_local_bit,
+      vk::image_usage::color_attachment_bit |
+        vk::image_usage::transfer_src_bit);
+    resource_id gbuffer_depth_stencil = storage.add_image(
+      "Depth Stencil",
+      width,
+      height,
+      static_cast<vk::format>(depth_format),
+      vk::memory_property::device_local_bit,
+      vk::image_usage::depth_stencil_bit,
+      vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit);
 
-    std::array<resource_id, 2> gbuffer_writes = {gbuffer_albedo, gbuffer_depth_stencil};
-    render_graph.emplace_pass("GBuffer", {}, gbuffer_writes, [&](vk::command_buffer p_command, resource_storage& p_storage) {
+    std::array<resource_id, 2> gbuffer_writes = { gbuffer_albedo,
+                                                  gbuffer_depth_stencil };
+    render_graph.emplace_pass(
+      "GBuffer",
+      {},
+      gbuffer_writes,
+      [&](vk::command_buffer p_command, resource_storage& p_storage) {
+          auto albedo_opt = p_storage.get_image("GBuffer_albedo");
+          auto depth_opt = p_storage.get_image("Depth Stencil");
 
-        auto albedo_opt = p_storage.get_image("GBuffer_albedo");
-        auto depth_opt = p_storage.get_image("Depth Stencil");
+          if (albedo_opt and depth_opt) {
+              auto albedo = albedo_opt.value();
+              auto depth = depth_opt.value();
 
-
-        if(albedo_opt and depth_opt) {
-            auto albedo = albedo_opt.value();
-            auto depth = depth_opt.value();
-
-            // Because dynamic rendering does not automatically handle layout
-            // transitions These memory barriers set the color and depth images for
-            // the output
-            vk::v2::image_memory_barrier albedo_barrier = {
-                .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
-                .src_access_mask = vk::v2::access_flags::memory_read_bit,
-                .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
-                .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit,
-                .old_layout      = vk::image_layout::undefined,
-                .new_layout      = vk::image_layout::color_optimal,
+              // Because dynamic rendering does not automatically handle layout
+              // transitions These memory barriers set the color and depth
+              // images for the output
+              vk::v2::image_memory_barrier albedo_barrier = {
+                .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe, // Earliest stage: no prior work required
+                .src_access_mask = vk::v2::access_flags::memory_read_bit,     // Flushes generic prior reads
+                .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output, // Waits at color output stage
+                .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit, // Prepares for color attachment writes
+                .old_layout      = vk::image_layout::undefined, // Previous layout contents can be discarded
+                .new_layout      = vk::image_layout::color_optimal, // Transition to optimal color attachment layout
                 .subresource_range = {
-                    .aspect_mask = vk::image_aspect_flags::color_bit,
+                    .aspect_mask = vk::image_aspect_flags::color_bit, // Targets color-spaces
                     .level_count = 1,
                     .layer_count = 1,
                 },
-            };
-            albedo.pipeline_barriers(p_command, std::views::single(albedo_barrier));
+              };
+              albedo.pipeline_barriers(p_command,
+                                       std::views::single(albedo_barrier));
 
-            vk::v2::image_memory_barrier depth_barrier = {
+              vk::v2::image_memory_barrier depth_barrier = {
                 .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
                 .src_access_mask = vk::v2::access_flags::memory_read_bit,
                 .dst_stage_mask  = vk::v2::pipeline_stage_flags::early_fragment_shader_bit,
@@ -390,118 +348,179 @@ int main() {
                 .old_layout      = vk::image_layout::undefined,
                 .new_layout      = vk::image_layout::depth_stencil_optimal,
                 .subresource_range = {
-                    .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit,
+                    .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit, // targets both depth and stencil aspects
                     .level_count = 1,
                     .layer_count = 1,
                 },
-            };
-            depth.pipeline_barriers(p_command, std::views::single(depth_barrier));
+              };
+              depth.pipeline_barriers(p_command,
+                                      std::views::single(depth_barrier));
 
-            vk::rendering_attachment color_render_attachment = {
-                .image_view = albedo.image_view(),
-                .layout = vk::image_layout::color_optimal,
-                .load = vk::attachment_load::clear,
-                .store = vk::attachment_store::store,
-                .clear_values = clear_color
-            };
+              vk::rendering_attachment color_render_attachment = {
+                  .image_view = albedo.image_view(),
+                  .layout = vk::image_layout::color_optimal,
+                  .load = vk::attachment_load::clear,
+                  .store = vk::attachment_store::store,
+                  .clear_values = clear_color
+              };
 
-            vk::rendering_attachment depth_stencil_attachment = {
-                .image_view = depth.image_view(),
-                .layout = vk::image_layout::depth_stencil_optimal,
-                .load = vk::attachment_load::clear,
-                .store = vk::attachment_store::store,
-                .depth_values = depth_value
-            };
+              vk::rendering_attachment depth_stencil_attachment = {
+                  .image_view = depth.image_view(),
+                  .layout = vk::image_layout::depth_stencil_optimal,
+                  .load = vk::attachment_load::clear,
+                  .store = vk::attachment_store::store,
+                  .depth_values = depth_value
+              };
 
-            vk::rendering_begin_parameters begin_params = {
-                .render_area = { { 0, 0 }, { static_cast<uint32_t>(width), static_cast<uint32_t>(height) } },
-                .layer_count = 1,
-                .color_attachments = std::span<const vk::rendering_attachment>(&color_render_attachment, 1),
-                .depth_attachment = depth_stencil_attachment,
-                .stencil_attachment = depth_stencil_attachment,
-            };
+              vk::rendering_begin_parameters begin_params = {
+                  .render_area = { { 0, 0 },
+                                   { static_cast<uint32_t>(width),
+                                     static_cast<uint32_t>(height) } },
+                  .layer_count = 1,
+                  .color_attachments =
+                    std::span<const vk::rendering_attachment>(
+                      &color_render_attachment, 1),
+                  .depth_attachment = depth_stencil_attachment,
+                  .stencil_attachment = depth_stencil_attachment,
+              };
 
-            // 3. Begin Rendering & Draw Triangle
-            p_command.begin_rendering(begin_params);
-            main_graphics_pipeline.bind(p_command);
-            vkCmdDraw(p_command, 3, 1, 0, 0);
-            p_command.end_rendering();
-
-        }
-    });
+              // 3. Begin Rendering & Draw Triangle
+              p_command.begin_rendering(begin_params);
+              main_graphics_pipeline.bind(p_command);
+              vkCmdDraw(p_command, 3, 1, 0, 0);
+              p_command.end_rendering();
+          }
+      });
 
     vk::sample_image* swapchain_img = nullptr;
     vk::sample_image* swapchain_depth_img = nullptr;
-    std::array<resource_id, 1> present_reads = {gbuffer_albedo};
-    render_graph.emplace_pass("Final Output", present_reads, {}, [&](vk::command_buffer p_command, resource_storage& p_storage){
-        if(swapchain_img == nullptr and swapchain_depth_img == nullptr) {
-            return;
-        }
+    std::array<resource_id, 1> present_reads = { gbuffer_albedo };
+    render_graph.emplace_pass(
+      "Final Output",
+      present_reads,
+      {},
+      [&](vk::command_buffer p_command, resource_storage& p_storage) {
+          if (swapchain_img == nullptr and swapchain_depth_img == nullptr) {
+              return;
+          }
 
-        auto albedo_opt = p_storage.get_image("GBuffer_albedo");
-        VkFormat swapchain_format = surface_properties.format.format;
+          auto albedo_opt = p_storage.get_image("GBuffer_albedo");
+          VkFormat swapchain_format = surface_properties.format.format;
 
-        if(albedo_opt) {
-            auto albedo = albedo_opt.value();
+          if (albedo_opt) {
+              auto albedo = albedo_opt.value();
 
-            vk::v2::image_memory_barrier albedo_transfer_barrier = {
-                .src_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
-                .src_access_mask = vk::v2::access_flags::color_attachment_write_bit,
-                .dst_stage_mask  = vk::v2::pipeline_stage_flags::transient_bit,
-                .dst_access_mask = vk::v2::access_flags::transfer_read_bit,
-                .old_layout      = vk::image_layout::color_optimal,
-                .new_layout      = vk::image_layout::transfer_src_optimal, // FIX: transitioned to transfer source optimal
-                .subresource_range = { .aspect_mask = vk::image_aspect_flags::color_bit },
+              vk::v2::image_memory_barrier albedo_transfer_barrier = {
+                  .src_stage_mask =
+                    vk::v2::pipeline_stage_flags::color_attachment_output,
+                  .src_access_mask =
+                    vk::v2::access_flags::color_attachment_write_bit,
+                  .dst_stage_mask = vk::v2::pipeline_stage_flags::transient_bit,
+                  .dst_access_mask = vk::v2::access_flags::transfer_read_bit,
+                  .old_layout = vk::image_layout::color_optimal,
+                  .new_layout =
+                    vk::image_layout::transfer_src_optimal, // FIX: transitioned
+                                                            // to transfer
+                                                            // source optimal
+                  .subresource_range = { .aspect_mask =
+                                           vk::image_aspect_flags::color_bit },
+              };
+              albedo.pipeline_barriers(
+                p_command, std::views::single(albedo_transfer_barrier));
+              vk::v2::image_memory_barrier swapchain_dst_barrier = {
+                  .src_stage_mask = vk::v2::pipeline_stage_flags::top_of_pipe,
+                  .src_access_mask = vk::v2::access_flags::memory_read_bit,
+                  .dst_stage_mask = vk::v2::pipeline_stage_flags::transient_bit,
+                  .dst_access_mask = vk::v2::access_flags::transfer_write_bit,
+                  .old_layout = vk::image_layout::undefined,
+                  .new_layout = vk::image_layout::
+                    transfer_dst_optimal, // or
+                                          // transfer_dst_optimal
+                                          // if available
+                  .subresource_range = { .aspect_mask =
+                                           vk::image_aspect_flags::color_bit },
+              };
+              swapchain_img->pipeline_barriers(
+                p_command, std::views::single(swapchain_dst_barrier));
+
+              //   VkImageBlit blit_region{};
+              //   blit_region.srcSubresource.aspectMask =
+              //   VK_IMAGE_ASPECT_COLOR_BIT;
+              //   blit_region.srcSubresource.layerCount = 1;
+              //   blit_region.srcOffsets[1] = { .x = width, .y = height, .z = 1
+              //   };
+
+              //   blit_region.dstSubresource.aspectMask =
+              //   VK_IMAGE_ASPECT_COLOR_BIT;
+              //   blit_region.dstSubresource.layerCount = 1;
+              //   blit_region.dstOffsets[1] = {
+              //       .x = static_cast<int32_t>(swapchain_extent.width),
+              //       .y = static_cast<int32_t>(swapchain_extent.height),
+              //       .z = 1
+              //   };
+
+              //   vkCmdBlitImage(p_command,
+              //                  albedo,
+              //                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+              //                  *swapchain_img,
+              //                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              //                  1,
+              //                  &blit_region,
+              //                  VK_FILTER_LINEAR);
+
+              vk::image_targets target = {
+                  .src = { .image = albedo,
+                           .layout = static_cast<VkImageLayout>(
+                             vk::image_layout::transfer_src_optimal) },
+                  .dst = { .image = *swapchain_img,
+                           .layout = static_cast<VkImageLayout>(
+                             vk::image_layout::transfer_dst_optimal) },
+              };
+
+              vk::image_blit blit = {
+                .src = {
+                    .aspect_mask = vk::image_aspect_flags::color_bit,
+                    .mip_level = 0,
+                    .level_count = 0,
+                    .layer_count = 1,
+                },
+                .src_offsets = {
+                    VkOffset3D{0, 0, 0},
+                    VkOffset3D{width, height, 1},
+                },
+                .dst = {
+                    .aspect_mask = vk::image_aspect_flags::color_bit,
+                    .mip_level = 0,
+                    .level_count = 0,
+                    .layer_count = 1,
+                },
+                .dst_offsets = {
+                    VkOffset3D{0, 0, 0},
+                    VkOffset3D{static_cast<int32_t>(swapchain_extent.width), static_cast<int32_t>(swapchain_extent.height), 1},
+                },
             };
-            albedo.pipeline_barriers(p_command, std::views::single(albedo_transfer_barrier));
-            vk::v2::image_memory_barrier swapchain_dst_barrier = {
-                .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
-                .src_access_mask = vk::v2::access_flags::memory_read_bit,
-                .dst_stage_mask  = vk::v2::pipeline_stage_flags::transient_bit,
-                .dst_access_mask = vk::v2::access_flags::transfer_write_bit,
-                .old_layout      = vk::image_layout::undefined,
-                .new_layout      = vk::image_layout::transfer_dst_optimal, // or transfer_dst_optimal if available
-                .subresource_range = { .aspect_mask = vk::image_aspect_flags::color_bit },
-            };
-            swapchain_img->pipeline_barriers(p_command, std::views::single(swapchain_dst_barrier));
+              p_command.blit_image(target, std::views::single(blit));
 
-            VkImageBlit blit_region{};
-            blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            blit_region.srcSubresource.layerCount = 1;
-            blit_region.srcOffsets[1] = { .x = width, .y = height, .z = 1 };
-            
-            blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            blit_region.dstSubresource.layerCount = 1;
-            blit_region.dstOffsets[1] = { .x = static_cast<int32_t>(swapchain_extent.width), .y = static_cast<int32_t>(swapchain_extent.height), .z = 1 };
-
-            vkCmdBlitImage(
-                p_command,
-                albedo, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                *swapchain_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                1, &blit_region,
-                VK_FILTER_LINEAR
-            );
-            vk::v2::image_memory_barrier swapchain_present_barrier = {
-                .src_stage_mask  = vk::v2::pipeline_stage_flags::transient_bit,
-                .src_access_mask = vk::v2::access_flags::transfer_write_bit,
-                .dst_stage_mask  = vk::v2::pipeline_stage_flags::bottom_of_pipe,
-                .dst_access_mask = vk::v2::access_flags::memory_read_bit,
-                .old_layout      = vk::image_layout::transfer_dst_optimal,
-                .new_layout      = vk::image_layout::present_src_khr,
-                .subresource_range = { .aspect_mask = vk::image_aspect_flags::color_bit },
-            };
-            swapchain_img->pipeline_barriers(p_command, std::views::single(swapchain_present_barrier));
-        }
-
-    });
+              vk::v2::image_memory_barrier swapchain_present_barrier = {
+                  .src_stage_mask = vk::v2::pipeline_stage_flags::transient_bit,
+                  .src_access_mask = vk::v2::access_flags::transfer_write_bit,
+                  .dst_stage_mask =
+                    vk::v2::pipeline_stage_flags::bottom_of_pipe,
+                  .dst_access_mask = vk::v2::access_flags::memory_read_bit,
+                  .old_layout = vk::image_layout::transfer_dst_optimal,
+                  .new_layout = vk::image_layout::present_src_khr,
+                  .subresource_range = { .aspect_mask =
+                                           vk::image_aspect_flags::color_bit },
+              };
+              swapchain_img->pipeline_barriers(
+                p_command, std::views::single(swapchain_present_barrier));
+          }
+      });
     render_graph.compile();
 
     render_graph.print_dependencies();
 
-
-
-
-    while(!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         uint32_t current_frame = presentation_queue.acquire_next_image();
         vk::command_buffer current = swapchain_command_buffers[current_frame];
@@ -519,17 +538,14 @@ int main() {
             .min_depth = 0.0f,
             .max_depth = 1.0f,
         };
-        current.set_viewport(
-          0, 1, std::views::single(viewport));
+        current.set_viewport(0, 1, std::views::single(viewport));
 
         vk::scissor_params scissor = {
             .offset = { 0, 0 },
             .extent = swapchain_extent,
         };
-        current.set_scissor(
-          0, 1, std::views::single(scissor));
+        current.set_scissor(0, 1, std::views::single(scissor));
 
-        
         render_graph.execute2(current, storage);
 
         current.end();
