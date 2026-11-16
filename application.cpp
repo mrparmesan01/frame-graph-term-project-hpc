@@ -390,7 +390,7 @@ main() {
               vkCmdDraw(p_command, 3, 1, 0, 0);
               p_command.end_rendering();
           }
-      });
+    });
 
     vk::sample_image* swapchain_img = nullptr;
     vk::sample_image* swapchain_depth_img = nullptr;
@@ -443,31 +443,6 @@ main() {
               swapchain_img->pipeline_barriers(
                 p_command, std::views::single(swapchain_dst_barrier));
 
-              //   VkImageBlit blit_region{};
-              //   blit_region.srcSubresource.aspectMask =
-              //   VK_IMAGE_ASPECT_COLOR_BIT;
-              //   blit_region.srcSubresource.layerCount = 1;
-              //   blit_region.srcOffsets[1] = { .x = width, .y = height, .z = 1
-              //   };
-
-              //   blit_region.dstSubresource.aspectMask =
-              //   VK_IMAGE_ASPECT_COLOR_BIT;
-              //   blit_region.dstSubresource.layerCount = 1;
-              //   blit_region.dstOffsets[1] = {
-              //       .x = static_cast<int32_t>(swapchain_extent.width),
-              //       .y = static_cast<int32_t>(swapchain_extent.height),
-              //       .z = 1
-              //   };
-
-              //   vkCmdBlitImage(p_command,
-              //                  albedo,
-              //                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-              //                  *swapchain_img,
-              //                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-              //                  1,
-              //                  &blit_region,
-              //                  VK_FILTER_LINEAR);
-
               vk::image_targets target = {
                   .src = { .image = albedo,
                            .layout = static_cast<VkImageLayout>(
@@ -515,7 +490,8 @@ main() {
               swapchain_img->pipeline_barriers(
                 p_command, std::views::single(swapchain_present_barrier));
           }
-      });
+    });
+    
     render_graph.compile();
 
     render_graph.print_dependencies();
@@ -538,13 +514,13 @@ main() {
             .min_depth = 0.0f,
             .max_depth = 1.0f,
         };
-        current.set_viewport(0, 1, std::views::single(viewport));
+        current.set_viewport(std::views::single(viewport), 0);
 
         vk::scissor_params scissor = {
             .offset = { 0, 0 },
             .extent = swapchain_extent,
         };
-        current.set_scissor(0, 1, std::views::single(scissor));
+        current.set_scissor(std::views::single(scissor), 0);
 
         render_graph.execute2(current, storage);
 
