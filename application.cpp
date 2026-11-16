@@ -138,14 +138,13 @@ main() {
 
     // (image_usage::transfer_src_bit | image_usage::transfer_dst_bit) required
     // for blitting/copying an image to swapchain_image
-    vk::image_usage swapchain_usage = vk::image_usage::color_attachment_bit |
-                                      vk::image_usage::transfer_src_bit |
-                                      vk::image_usage::transfer_dst_bit;
     vk::swapchain main_swapchain(logical_device,
                                  window_surface,
                                  enumerate_swapchain_settings,
                                  surface_properties,
-                                 swapchain_usage);
+                                 vk::image_usage::color_attachment_bit |
+                                   vk::image_usage::transfer_src_bit |
+                                   vk::image_usage::transfer_dst_bit);
 
     // querying presentable images
     std::span<const VkImage> images = main_swapchain.get_images();
@@ -289,6 +288,8 @@ main() {
 
     resource_storage storage(logical_device, physical_device);
 
+    // Setting up our GPU-resources (images)
+    // Color Image (Geometry Pass)
     vk::image_params image_params = {};
     resource_id gbuffer_albedo = storage.add_image(
       "GBuffer_albedo",
@@ -298,8 +299,10 @@ main() {
       vk::memory_property::device_local_bit,
       vk::image_usage::color_attachment_bit |
         vk::image_usage::transfer_src_bit);
+
+    // Depth Image (Depth-Pass)
     resource_id gbuffer_depth_stencil = storage.add_image(
-      "Depth Stencil",
+      "GBuffer_depth_stencil",
       width,
       height,
       static_cast<vk::format>(depth_format),
@@ -307,15 +310,35 @@ main() {
       vk::image_usage::depth_stencil_bit,
       vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit);
 
-    std::array<resource_id, 2> gbuffer_writes = { gbuffer_albedo,
+    resource_id gbuffer_normals = storage.add_image(
+      "GBuffer_normals",
+      width,
+      height,
+      vk::format::r16g16b16a16_sfloat,
+      vk::memory_property::device_local_bit,
+      vk::image_usage::color_attachment_bit | vk::image_usage::sampled_bit);
+
+    // Lighting Output Image
+    resource_id lighting_output_image = storage.add_image(
+      "Lighting_output_image",
+      width,
+      height,
+      static_cast<vk::format>(surface_properties.format.format),
+      vk::memory_property::device_local_bit,
+      vk::image_usage::color_attachment_bit | vk::image_usage::sampled_bit);
+
+    std::array<resource_id, 3> gbuffer_writes = { gbuffer_albedo,
+                                                  gbuffer_normals,
                                                   gbuffer_depth_stencil };
+
+    // GBUffer Pass
     render_graph.emplace_pass(
       "GBuffer",
       {},
       gbuffer_writes,
       [&](vk::command_buffer p_command, resource_storage& p_storage) {
           auto albedo_opt = p_storage.get_image("GBuffer_albedo");
-          auto depth_opt = p_storage.get_image("Depth Stencil");
+          auto depth_opt = p_storage.get_image("GBuffer_depth_stencil");
 
           if (albedo_opt and depth_opt) {
               auto albedo = albedo_opt.value();
@@ -392,9 +415,29 @@ main() {
           }
     });
 
+    std::array<resource_id, 3> lighting_reads = { gbuffer_albedo, gbuffer_normals, gbuffer_depth_stencil };
+    std::array<resource_id, 1> lighting_writes = { lighting_output_image };
+
+    render_graph.emplace_pass("Lighting_pass", lighting_reads, lighting_writes, [](vk::command_buffer p_command, resource_storage& p_storage) {
+    });
+    
+
     vk::sample_image* swapchain_img = nullptr;
     vk::sample_image* swapchain_depth_img = nullptr;
-    std::array<resource_id, 1> present_reads = { gbuffer_albedo };
+    std::array<resource_id, 2> present_reads = { gbuffer_albedo, lighting_output_image };
+
+    // Final Output Pass
+    /**
+    
+    NOTE:
+
+    GBUffer -> Final Output
+
+
+    With Lighting (this is due to an additional dependecy of read ocurring from the lighting pass):
+    GBuffer -> Lighting -> Final Output
+    
+    */
     render_graph.emplace_pass(
       "Final Output",
       present_reads,
@@ -490,8 +533,8 @@ main() {
               swapchain_img->pipeline_barriers(
                 p_command, std::views::single(swapchain_present_barrier));
           }
-    });
-    
+      });
+
     render_graph.compile();
 
     render_graph.print_dependencies();
@@ -522,7 +565,7 @@ main() {
         };
         current.set_scissor(std::views::single(scissor), 0);
 
-        render_graph.execute2(current, storage);
+        render_graph.execute(current, storage);
 
         current.end();
 

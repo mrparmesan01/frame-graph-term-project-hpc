@@ -30,6 +30,7 @@ target_sources(${PROJECT_NAME} PUBLIC
     image.cppm
     obj_model.cppm
     types.cppm
+    uniform_types.cppm
     frame_graph.cppm
 )
 

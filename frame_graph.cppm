@@ -112,50 +112,63 @@ public:
         }
     }
 
-    void execute(vk::command_buffer p_command, resource_storage& p_storage) {
-        for(const auto& pass : m_execution_order) {
-            if(m_execute_commands.contains(pass.id)) {
-                m_execute_commands.at(pass.id)(p_command, p_storage);
+    void dependencies_synchronization(vk::command_buffer p_command, resource_storage& p_storage, const pass_description& p_pass) {
+        for(auto write : p_pass.writes) {
+            auto image_opt = p_storage.get_image(p_pass.name);
+
+            if(image_opt.has_value()) {
+                vk::v2::image_memory_barrier write_barrier = {
+                    .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
+                    .src_access_mask = vk::v2::access_flags::memory_read_bit,
+                    .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
+                    .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit,
+                    .old_layout      = vk::image_layout::undefined,
+                    .new_layout      = vk::image_layout::color_optimal,
+                    .subresource_range = {
+                        .aspect_mask = vk::image_aspect_flags::color_bit,
+                        .level_count = 1,
+                        .layer_count = 1,
+                    },
+                };
+
+                auto img = image_opt.value();
+
+                img.pipeline_barriers(p_command, std::views::single(write_barrier));
+            }
+        }
+
+        for(auto read : p_pass.reads) {
+            auto image_opt = p_storage.get_image(p_pass.name);
+
+            if(image_opt.has_value()) {
+                auto old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+                auto new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+                auto img = image_opt.value();
+
+                vk::v2::image_memory_barrier read_barrier = {
+                    .src_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output,
+                    .src_access_mask = vk::v2::access_flags::color_attachment_write_bit,
+                    .dst_stage_mask  = vk::v2::pipeline_stage_flags::transient_bit,
+                    .dst_access_mask = vk::v2::access_flags::transfer_read_bit,
+                    .old_layout      = vk::image_layout::color_optimal,
+                    .new_layout      = vk::image_layout::transfer_src_optimal,
+                    .subresource_range = {
+                        .aspect_mask = vk::image_aspect_flags::color_bit,
+                        .level_count = 1,
+                        .layer_count = 1,
+                    },
+                };
+                img.pipeline_barriers(p_command, std::views::single(read_barrier));
+
             }
         }
     }
 
-    void execute2(vk::command_buffer p_command, resource_storage& p_storage) {
+    void execute(vk::command_buffer p_command, resource_storage& p_storage) {
         for(const auto& pass : m_execution_order) {
-            for(auto write : pass.writes) {
-                auto img_opt = p_storage.get_image(pass.name);
-                if(img_opt.has_value()) {
-                    auto old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-                    auto new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-                    if(old_layout != new_layout) {
-                        auto img = img_opt.value();
-                        img_opt->pipeline_barriers(
-                            p_command,
-                            static_cast<VkFormat>(vk::format::r8g8b8a8_unorm), // Match format or query from storage
-                            old_layout,
-                            new_layout,
-                            VK_IMAGE_ASPECT_COLOR_BIT,
-                            1
-                        );
-                    }
-                }
-            }
-
-            for(auto read : pass.reads) {
-                auto img_opt = p_storage.get_image(pass.name);
-                if(img_opt.has_value()) {
-                    auto img = img_opt.value();
-                    img.pipeline_barriers(
-                        p_command,
-                        static_cast<VkFormat>(vk::format::r8g8b8a8_unorm),
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                        VK_IMAGE_ASPECT_COLOR_BIT,
-                        1
-                    );
-                }
-            }
+            dependencies_synchronization(p_command, p_storage, pass);
 
             if(m_execute_commands.contains(pass.id)) {
                 m_execute_commands.at(pass.id)(p_command, p_storage);
