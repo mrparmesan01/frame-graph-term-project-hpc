@@ -363,19 +363,6 @@ main() {
                          logical_device,
                          physical_device);
 
-    // Initialize VkBuffer for storing 3D model in GPU memory
-    vk::buffer_parameters uniform_params = {
-        .memory_mask =
-          physical_device.memory_properties(static_cast<vk::memory_property>(
-            vk::memory_property::host_visible_bit |
-            vk::memory_property::host_cached_bit)),
-        .usage = vk::buffer_usage::uniform_buffer_bit |
-                 vk::buffer_usage::shader_device_address_bit,
-        .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
-    };
-    vk::dyn::buffer global_transform_buffer =
-      vk::dyn::buffer(logical_device, sizeof(global_uniform), uniform_params);
-
     // Setup image loading
     vk::texture_params texture_params = {
         .memory_mask = physical_device.memory_properties(
@@ -406,10 +393,8 @@ main() {
 
 
     GBuffer (0) --->
-            | -> Lighting (2) --> UI (3)
+                    | -> Lighting (2) --> UI (3) -> Final Output
     Shadow (0) --->
-
-
 
     */
 
@@ -455,6 +440,14 @@ main() {
       static_cast<vk::format>(surface_properties.format.format),
       vk::memory_property::device_local_bit,
       vk::image_usage::color_attachment_bit | vk::image_usage::sampled_bit);
+
+    // Creating VkBuffer handle for passing our global uniforms to the shader
+    resource_id global_transform_buffer = storage.add_buffer<global_uniform>(
+      "global_transform",
+      vk::memory_property::host_visible_bit |
+        vk::memory_property::host_cached_bit,
+      vk::buffer_usage::uniform_buffer_bit |
+        vk::buffer_usage::shader_device_address_bit);
 
     std::array<resource_id, 3> gbuffer_writes = { gbuffer_albedo,
                                                   gbuffer_normals,
@@ -550,6 +543,10 @@ main() {
                   p_command.bind_index_buffers32(test_model.index_handle());
               }
 
+              std::optional<vk::dyn::buffer> opt =
+                p_storage.get_buffer("global_transform");
+              auto global_transform_buffer = opt.value();
+
               // We set the uniforms and then we offload that to the GPU
               global_uniform ubo = {
                   .model = glm::rotate(glm::mat4(1.0f),
@@ -566,18 +563,24 @@ main() {
               };
               ubo.proj[1][1] *= -1;
 
-              global_transform_buffer.transfer<global_uniform>(std::views::single(ubo));
+              global_transform_buffer.transfer<global_uniform>(
+                std::views::single(ubo));
 
-              const uint64_t ubo_address = global_transform_buffer.get_device_address();
+              const uint64_t ubo_address =
+                global_transform_buffer.get_device_address();
               push_constant_data push = {
-                .texture_index = 0,
-                .global_ubo_addr = ubo_address,
+                  .texture_index = 0,
+                  .global_ubo_addr = ubo_address,
               };
 
-              main_graphics_pipeline.push_constant<push_constant_data>(p_command, push, stage, 0);
+              main_graphics_pipeline.push_constant<push_constant_data>(
+                p_command, push, stage, 0);
 
               const VkDescriptorSet set1_handle = set1;
-              p_command.bind_descriptors(main_graphics_pipeline.layout(), VK_PIPELINE_BIND_POINT_GRAPHICS, std::span<const VkDescriptorSet>(&set1_handle, 1));
+              p_command.bind_descriptors(
+                main_graphics_pipeline.layout(),
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                std::span<const VkDescriptorSet>(&set1_handle, 1));
 
               test_model.draw(p_command);
 
@@ -738,7 +741,9 @@ main() {
         static auto start_time = std::chrono::high_resolution_clock::now();
         auto current_time = std::chrono::high_resolution_clock::now();
 
-        time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - start_time).count();
+        time = std::chrono::duration<float, std::chrono::seconds::period>(
+                 current_time - start_time)
+                 .count();
 
         render_graph.execute(current, storage);
 
@@ -757,7 +762,7 @@ main() {
     main_graphics_pipeline.destruct();
     set1.destruct();
     viking_room_texture.destruct();
-    global_transform_buffer.reset();
+    // global_transform_buffer.reset();
     test_model.destruct();
 
     for (auto& command : swapchain_command_buffers) {
