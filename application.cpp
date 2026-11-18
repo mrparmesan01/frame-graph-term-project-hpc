@@ -462,9 +462,7 @@ main() {
                   .dst_access_mask = vk::v2::access_flags::transfer_read_bit,
                   .old_layout = vk::image_layout::color_optimal,
                   .new_layout =
-                    vk::image_layout::transfer_src_optimal, // FIX: transitioned
-                                                            // to transfer
-                                                            // source optimal
+                    vk::image_layout::transfer_src_optimal,
                   .subresource_range = { .aspect_mask =
                                            vk::image_aspect_flags::color_bit },
               };
@@ -477,9 +475,7 @@ main() {
                   .dst_access_mask = vk::v2::access_flags::transfer_write_bit,
                   .old_layout = vk::image_layout::undefined,
                   .new_layout = vk::image_layout::
-                    transfer_dst_optimal, // or
-                                          // transfer_dst_optimal
-                                          // if available
+                    transfer_dst_optimal,
                   .subresource_range = { .aspect_mask =
                                            vk::image_aspect_flags::color_bit },
               };
@@ -552,8 +548,8 @@ main() {
         vk::viewport_params viewport = {
             .x = 0.0f,
             .y = 0.0f,
-            .width = static_cast<float>(swapchain_extent.width),
-            .height = static_cast<float>(swapchain_extent.height),
+            .width = static_cast<float>(width),
+            .height = static_cast<float>(height),
             .min_depth = 0.0f,
             .max_depth = 1.0f,
         };
@@ -561,7 +557,7 @@ main() {
 
         vk::scissor_params scissor = {
             .offset = { 0, 0 },
-            .extent = swapchain_extent,
+            .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
         };
         current.set_scissor(std::views::single(scissor), 0);
 
