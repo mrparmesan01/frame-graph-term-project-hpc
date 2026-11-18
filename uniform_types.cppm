@@ -8,6 +8,17 @@ export module uniform_types;
 
 export {
 
+    struct global_uniform {
+        glm::mat4 model;
+        glm::mat4 view;
+        glm::mat4 proj;
+    };
+
+    struct push_constant_data {
+        uint32_t texture_index = 0;
+        uint64_t global_ubo_addr = 0;
+    };
+
     struct scene_ubo {
         glm::mat4 view = glm::mat4(1.f);
         glm::mat4 proj = glm::mat4(1.f);

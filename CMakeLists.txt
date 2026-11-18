@@ -12,11 +12,13 @@ build_application(
     glm
     stb
     tinyobjloader
+    flecs
 
     LINK_PACKAGES
     stb::stb
     vulkan-cpp
     tinyobjloader
+    flecs::flecs_static
     Vulkan::Vulkan
 )
 

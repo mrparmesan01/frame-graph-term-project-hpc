@@ -1,16 +1,27 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
+
+#include <filesystem>
 
 #include <print>
 #include <array>
 #include <ranges>
 #include <expected>
+#include <flecs.h>
 
 import vk;
 import vk_utilities;
 import types;
+import uniform_types;
 import resource_storage;
 import frame_graph;
+import obj_model;
+import image;
 
 int
 main() {
@@ -237,6 +248,66 @@ main() {
     };
     vk::shader_resource geometry_resource(logical_device, shader_info);
 
+    // Setting up our vertex attributes
+    std::array<vk::vertex_attribute_entry, 4> attribute_entries = {
+        vk::vertex_attribute_entry{
+          .location = 0,
+          .format = vk::format::rgb32_sfloat,
+          .stride = offsetof(vk::vertex_input, position),
+        },
+        vk::vertex_attribute_entry{
+          .location = 1,
+          .format = vk::format::rgb32_sfloat,
+          .stride = offsetof(vk::vertex_input, color),
+        },
+        vk::vertex_attribute_entry{
+          .location = 2,
+          .format = vk::format::rg32_sfloat,
+          .stride = offsetof(vk::vertex_input, uv),
+        },
+        vk::vertex_attribute_entry{
+          .location = 3,
+          .format = vk::format::rgb32_sfloat,
+          .stride = offsetof(vk::vertex_input, normals),
+        }
+    };
+
+    vk::vertex_attribute attributes = {
+        .binding = 0,
+        .entries = attribute_entries,
+        .stride = sizeof(vk::vertex_input),
+        .input_rate = vk::input_rate::vertex,
+    };
+    geometry_resource.vertex_attributes(std::views::single(attributes));
+
+    // Initializing Descriptor Set 1
+    vk::descriptor_entry descriptr_entry = {
+        .type = vk::descriptor_type::combined_image_sampler,
+        .binding_point = {
+            .binding = 1,
+            .stage = vk::shader_stage::fragment,
+        },
+        .descriptor_count = 1,
+        .flags = vk::descriptor_bind_flags::partially_bound_bit | vk::descriptor_bind_flags::variable_descriptor_count_bit | vk::descriptor_bind_flags::update_after_bind,
+    };
+
+    uint32_t max_descriptors = 1;
+    vk::descriptor_layout set1_layout = {
+        .slot = 0,
+        .max_sets = image_count,
+        // .entries = std::views::single(descriptr_entry),
+        .entries = std::span<vk::descriptor_entry>(&descriptr_entry, 1),
+        .descriptor_counts = std::views::single(max_descriptors),
+    };
+
+    vk::descriptor_resource set1(
+      logical_device,
+      set1_layout,
+      vk::descriptor_layout_flags::update_after_bind_pool);
+
+    // Retrieving Descriptor Set 1
+    VkDescriptorSetLayout layout1 = set1.layout();
+
     std::array<vk::color_blend_attachment_state, 1> color_blend_attachments = {
         vk::color_blend_attachment_state{},
     };
@@ -246,6 +317,16 @@ main() {
     };
 
     uint32_t format = static_cast<uint32_t>(surface_properties.format.format);
+    uint32_t vertex_mask = static_cast<uint32_t>(vk::shader_stage::vertex);
+    uint32_t fragment_mask = static_cast<uint32_t>(vk::shader_stage::fragment);
+    uint32_t stage_mask = vertex_mask | fragment_mask;
+    vk::shader_stage stage = static_cast<vk::shader_stage>(stage_mask);
+    vk::push_constant_range range = {
+        .stage = stage,
+        .offset = 0,
+        .range = sizeof(push_constant_data),
+    };
+
     vk::pipeline_params pipeline_configuration = {
         .use_render_pipeline = true,
         .color_attachment_formats = std::span<const uint32_t>(&format, 1),
@@ -255,11 +336,14 @@ main() {
         .shader_modules = geometry_resource.handles(),
         .vertex_attributes = geometry_resource.vertex_attributes(),
         .vertex_bind_attributes = geometry_resource.vertex_bind_attributes(),
+        .descriptor_layouts = std::span<VkDescriptorSetLayout>(&layout1, 1),
         .color_blend = {
             .attachments = color_blend_attachments,
         },
         .depth_stencil_enabled = true,
         .dynamic_states = dynamic_states,
+        // .push_constants = std::span<const vk::push_constant_range>(&range, 1),
+        .push_constants = std::views::single(range),
     };
     vk::pipeline main_graphics_pipeline(logical_device, pipeline_configuration);
 
@@ -272,6 +356,49 @@ main() {
     };
 
     // Testing grounds for render graph implementation
+
+    // Load 3D model
+
+    obj_model test_model(std::filesystem::path("asset_samples/viking_room.obj"),
+                         logical_device,
+                         physical_device);
+
+    // Initialize VkBuffer for storing 3D model in GPU memory
+    vk::buffer_parameters uniform_params = {
+        .memory_mask =
+          physical_device.memory_properties(static_cast<vk::memory_property>(
+            vk::memory_property::host_visible_bit |
+            vk::memory_property::host_cached_bit)),
+        .usage = vk::buffer_usage::uniform_buffer_bit |
+                 vk::buffer_usage::shader_device_address_bit,
+        .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
+    };
+    vk::dyn::buffer global_transform_buffer =
+      vk::dyn::buffer(logical_device, sizeof(global_uniform), uniform_params);
+
+    // Setup image loading
+    vk::texture_params texture_params = {
+        .memory_mask = physical_device.memory_properties(
+          vk::memory_property::host_visible_bit |
+          vk::memory_property::host_cached_bit),
+    };
+    stb_image image =
+      stb_image("asset_samples/viking_room.png", texture_params);
+    vk::texture viking_room_texture(logical_device, &image, texture_params);
+
+    // Setting up writing via Descriptors
+    vk::write_image viking_room_write_image_descriptor = {
+        .sampler = viking_room_texture.image().sampler(),
+        .view = viking_room_texture.image().image_view(),
+        .layout = vk::image_layout::shader_read_only_optimal,
+    };
+
+    vk::write_image_descriptor set1_sampler = {
+        .dst_binding = 1,
+        .sample_images = std::views::single(viking_room_write_image_descriptor),
+    };
+
+    set1.update({}, std::views::single(set1_sampler));
 
     frame_graph render_graph;
 
@@ -287,6 +414,8 @@ main() {
     */
 
     resource_storage storage(logical_device, physical_device);
+
+    float time = 0.f;
 
     // Setting up our GPU-resources (images)
     // Color Image (Geometry Pass)
@@ -348,34 +477,34 @@ main() {
               // transitions These memory barriers set the color and depth
               // images for the output
               vk::v2::image_memory_barrier albedo_barrier = {
-                .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe, // Earliest stage: no prior work required
-                .src_access_mask = vk::v2::access_flags::memory_read_bit,     // Flushes generic prior reads
-                .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output, // Waits at color output stage
-                .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit, // Prepares for color attachment writes
-                .old_layout      = vk::image_layout::undefined, // Previous layout contents can be discarded
-                .new_layout      = vk::image_layout::color_optimal, // Transition to optimal color attachment layout
-                .subresource_range = {
-                    .aspect_mask = vk::image_aspect_flags::color_bit, // Targets color-spaces
-                    .level_count = 1,
-                    .layer_count = 1,
-                },
-              };
+                    .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe, // Earliest stage: no prior work required
+                    .src_access_mask = vk::v2::access_flags::memory_read_bit,     // Flushes generic prior reads
+                    .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output, // Waits at color output stage
+                    .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit, // Prepares for color attachment writes
+                    .old_layout      = vk::image_layout::undefined, // Previous layout contents can be discarded
+                    .new_layout      = vk::image_layout::color_optimal, // Transition to optimal color attachment layout
+                    .subresource_range = {
+                        .aspect_mask = vk::image_aspect_flags::color_bit, // Targets color-spaces
+                        .level_count = 1,
+                        .layer_count = 1,
+                    },
+                };
               albedo.pipeline_barriers(p_command,
                                        std::views::single(albedo_barrier));
 
               vk::v2::image_memory_barrier depth_barrier = {
-                .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
-                .src_access_mask = vk::v2::access_flags::memory_read_bit,
-                .dst_stage_mask  = vk::v2::pipeline_stage_flags::early_fragment_shader_bit,
-                .dst_access_mask = vk::v2::access_flags::depth_stencil_attachment_write_bit,
-                .old_layout      = vk::image_layout::undefined,
-                .new_layout      = vk::image_layout::depth_stencil_optimal,
-                .subresource_range = {
-                    .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit, // targets both depth and stencil aspects
-                    .level_count = 1,
-                    .layer_count = 1,
-                },
-              };
+                    .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
+                    .src_access_mask = vk::v2::access_flags::memory_read_bit,
+                    .dst_stage_mask  = vk::v2::pipeline_stage_flags::early_fragment_shader_bit,
+                    .dst_access_mask = vk::v2::access_flags::depth_stencil_attachment_write_bit,
+                    .old_layout      = vk::image_layout::undefined,
+                    .new_layout      = vk::image_layout::depth_stencil_optimal,
+                    .subresource_range = {
+                        .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit, // targets both depth and stencil aspects
+                        .level_count = 1,
+                        .layer_count = 1,
+                    },
+                };
               depth.pipeline_barriers(p_command,
                                       std::views::single(depth_barrier));
 
@@ -410,33 +539,79 @@ main() {
               // 3. Begin Rendering & Draw Triangle
               p_command.begin_rendering(begin_params);
               main_graphics_pipeline.bind(p_command);
-              vkCmdDraw(p_command, 3, 1, 0, 0);
+              // vkCmdDraw(p_command, 3, 1, 0, 0);
+
+              const VkBuffer vertex = test_model.vertex_handle();
+              uint64_t offset = 0;
+              p_command.bind_vertex_buffers(std::views::single(vertex),
+                                            std::views::single(offset));
+
+              if (test_model.has_indices()) {
+                  p_command.bind_index_buffers32(test_model.index_handle());
+              }
+
+              // We set the uniforms and then we offload that to the GPU
+              global_uniform ubo = {
+                  .model = glm::rotate(glm::mat4(1.0f),
+                                       time * glm::radians(90.0f),
+                                       glm::vec3(0.0f, 0.0f, 1.0f)),
+                  .view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
+                                      glm::vec3(0.0f, 0.0f, 0.0f),
+                                      glm::vec3(0.0f, 0.0f, 1.0f)),
+                  .proj = glm::perspective(glm::radians(45.0f),
+                                           (float)swapchain_extent.width /
+                                             (float)swapchain_extent.height,
+                                           0.1f,
+                                           10.0f)
+              };
+              ubo.proj[1][1] *= -1;
+
+              global_transform_buffer.transfer<global_uniform>(std::views::single(ubo));
+
+              const uint64_t ubo_address = global_transform_buffer.get_device_address();
+              push_constant_data push = {
+                .texture_index = 0,
+                .global_ubo_addr = ubo_address,
+              };
+
+              main_graphics_pipeline.push_constant<push_constant_data>(p_command, push, stage, 0);
+
+              const VkDescriptorSet set1_handle = set1;
+              p_command.bind_descriptors(main_graphics_pipeline.layout(), VK_PIPELINE_BIND_POINT_GRAPHICS, std::span<const VkDescriptorSet>(&set1_handle, 1));
+
+              test_model.draw(p_command);
+
               p_command.end_rendering();
           }
-    });
+      });
 
-    std::array<resource_id, 3> lighting_reads = { gbuffer_albedo, gbuffer_normals, gbuffer_depth_stencil };
+    std::array<resource_id, 3> lighting_reads = { gbuffer_albedo,
+                                                  gbuffer_normals,
+                                                  gbuffer_depth_stencil };
     std::array<resource_id, 1> lighting_writes = { lighting_output_image };
 
-    render_graph.emplace_pass("Lighting_pass", lighting_reads, lighting_writes, [](vk::command_buffer p_command, resource_storage& p_storage) {
-    });
-    
+    render_graph.emplace_pass(
+      "Lighting_pass",
+      lighting_reads,
+      lighting_writes,
+      [](vk::command_buffer p_command, resource_storage& p_storage) {});
 
     vk::sample_image* swapchain_img = nullptr;
     vk::sample_image* swapchain_depth_img = nullptr;
-    std::array<resource_id, 2> present_reads = { gbuffer_albedo, lighting_output_image };
+    std::array<resource_id, 2> present_reads = { gbuffer_albedo,
+                                                 lighting_output_image };
 
     // Final Output Pass
     /**
-    
+
     NOTE:
 
     GBUffer -> Final Output
 
 
-    With Lighting (this is due to an additional dependecy of read ocurring from the lighting pass):
-    GBuffer -> Lighting -> Final Output
-    
+    With Lighting (this is due to an additional dependecy of read ocurring from
+    the lighting pass): GBuffer -> Lighting -> Final Output
+
     */
     render_graph.emplace_pass(
       "Final Output",
@@ -461,8 +636,7 @@ main() {
                   .dst_stage_mask = vk::v2::pipeline_stage_flags::transient_bit,
                   .dst_access_mask = vk::v2::access_flags::transfer_read_bit,
                   .old_layout = vk::image_layout::color_optimal,
-                  .new_layout =
-                    vk::image_layout::transfer_src_optimal,
+                  .new_layout = vk::image_layout::transfer_src_optimal,
                   .subresource_range = { .aspect_mask =
                                            vk::image_aspect_flags::color_bit },
               };
@@ -474,8 +648,7 @@ main() {
                   .dst_stage_mask = vk::v2::pipeline_stage_flags::transient_bit,
                   .dst_access_mask = vk::v2::access_flags::transfer_write_bit,
                   .old_layout = vk::image_layout::undefined,
-                  .new_layout = vk::image_layout::
-                    transfer_dst_optimal,
+                  .new_layout = vk::image_layout::transfer_dst_optimal,
                   .subresource_range = { .aspect_mask =
                                            vk::image_aspect_flags::color_bit },
               };
@@ -492,27 +665,27 @@ main() {
               };
 
               vk::image_blit blit = {
-                .src = {
-                    .aspect_mask = vk::image_aspect_flags::color_bit,
-                    .mip_level = 0,
-                    .level_count = 0,
-                    .layer_count = 1,
-                },
-                .src_offsets = {
-                    VkOffset3D{0, 0, 0},
-                    VkOffset3D{width, height, 1},
-                },
-                .dst = {
-                    .aspect_mask = vk::image_aspect_flags::color_bit,
-                    .mip_level = 0,
-                    .level_count = 0,
-                    .layer_count = 1,
-                },
-                .dst_offsets = {
-                    VkOffset3D{0, 0, 0},
-                    VkOffset3D{static_cast<int32_t>(swapchain_extent.width), static_cast<int32_t>(swapchain_extent.height), 1},
-                },
-            };
+                        .src = {
+                            .aspect_mask = vk::image_aspect_flags::color_bit,
+                            .mip_level = 0,
+                            .level_count = 0,
+                            .layer_count = 1,
+                        },
+                        .src_offsets = {
+                            VkOffset3D{0, 0, 0},
+                            VkOffset3D{width, height, 1},
+                        },
+                        .dst = {
+                            .aspect_mask = vk::image_aspect_flags::color_bit,
+                            .mip_level = 0,
+                            .level_count = 0,
+                            .layer_count = 1,
+                        },
+                        .dst_offsets = {
+                            VkOffset3D{0, 0, 0},
+                            VkOffset3D{static_cast<int32_t>(swapchain_extent.width), static_cast<int32_t>(swapchain_extent.height), 1},
+                        },
+                    };
               p_command.blit_image(target, std::views::single(blit));
 
               vk::v2::image_memory_barrier swapchain_present_barrier = {
@@ -557,9 +730,15 @@ main() {
 
         vk::scissor_params scissor = {
             .offset = { 0, 0 },
-            .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+            .extent = { static_cast<uint32_t>(width),
+                        static_cast<uint32_t>(height) },
         };
         current.set_scissor(std::views::single(scissor), 0);
+
+        static auto start_time = std::chrono::high_resolution_clock::now();
+        auto current_time = std::chrono::high_resolution_clock::now();
+
+        time = std::chrono::duration<float, std::chrono::seconds::period>(current_time - start_time).count();
 
         render_graph.execute(current, storage);
 
@@ -576,6 +755,10 @@ main() {
 
     geometry_resource.destruct();
     main_graphics_pipeline.destruct();
+    set1.destruct();
+    viking_room_texture.destruct();
+    global_transform_buffer.reset();
+    test_model.destruct();
 
     for (auto& command : swapchain_command_buffers) {
         command.destruct();
