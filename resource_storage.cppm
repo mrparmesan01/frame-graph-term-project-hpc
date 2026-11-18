@@ -66,7 +66,7 @@ public:
      * @brief Adds a buffer to the 
      * 
      * 
-     * @tparam T 
+     * @tparam T for specifying the sizeof(T) condition to retrieve size of bytes of the push constant data
      * @param p_name 
      * @return resource_id 
      * 
@@ -74,21 +74,12 @@ public:
      * ```C++
      * storage.add_buffer("PBR", vk::memory_property::device_local_bit | vk::memory_property::host_visible_bit, vk::buffer_usage::transfer_dst_bit);
      */
-    template<size_t T>
+    template<typename T>
     resource_id add_buffer(std::string_view p_name, vk::memory_property p_property_flags, vk::buffer_usage p_usage) {
         resource_id id = m_current_resource_id++;
 
-        // .usage = vk::buffer_usage::uniform_buffer_bit |
-        //          vk::buffer_usage::shader_device_address_bit,
-        // .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
-
         vk::buffer_parameters buffer_params = {
-            // .memory_mask = m_physical.memory_properties(
-            //   vk::memory_property::device_local_bit |
-            //   vk::memory_property::host_visible_bit),
             .memory_mask = m_physical.memory_properties(p_property_flags),
-            // .usage = vk::buffer_usage::transfer_dst_bit |
-            //          vk::buffer_usage::vertex_buffer_bit,
             .usage = p_usage | vk::buffer_usage::shader_device_address_bit,
             .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
         };
