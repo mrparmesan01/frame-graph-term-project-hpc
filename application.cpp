@@ -647,11 +647,10 @@ main() {
                         p_command.bind_index_buffers32(obj_model.index_handle());
                     }
 
-                    const VkDescriptorSet set1_handle = set1;
                     p_command.bind_descriptors(
                         main_graphics_pipeline.layout(),
                         VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        std::span<const VkDescriptorSet>(&set1_handle, 1));
+                        std::views::single(static_cast<VkDescriptorSet>(set1)));
 
                     obj_model.draw(p_command);
               });
@@ -875,18 +874,6 @@ main() {
     vk::texture viking_room_texture(logical_device, &image, texture_params);
 
     // Setting up writing via Descriptors
-    // vk::write_image viking_room_write_image_descriptor = {
-    //     .sampler = viking_room_texture.image().sampler(),
-    //     .view = viking_room_texture.image().image_view(),
-    //     .layout = vk::image_layout::shader_read_only_optimal,
-    // };
-
-    // vk::write_image_descriptor set1_sampler = {
-    //     .dst_binding = 1,
-    //     .sample_images = std::views::single(viking_room_write_image_descriptor),
-    // };
-
-    // std::vector<vk::write_image> gpu_write_desc_images(gpu_textures.size());
     std::vector<vk::write_image> gpu_write_desc_images;
     gpu_write_desc_images.reserve(gpu_textures.size());
 
