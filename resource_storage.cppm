@@ -91,6 +91,23 @@ public:
         return id;
     }
 
+    template<size_t TSize>
+    resource_id add_buffer(std::string_view p_name, vk::memory_property p_property_flags, vk::buffer_usage p_usage) {
+        resource_id id = m_current_resource_id++;
+
+        vk::buffer_parameters buffer_params = {
+            .memory_mask = m_physical.memory_properties(p_property_flags),
+            .usage = p_usage | vk::buffer_usage::shader_device_address_bit,
+            .allocate_flags = vk::memory_allocate_flags::device_address_bit_khr,
+        };
+
+        m_resource_table[p_name] = id;
+
+        m_buffers.try_emplace(id, m_device, TSize, buffer_params);
+        
+        return id;
+    }
+
     /**
      * @brief Get the buffer object
      * 

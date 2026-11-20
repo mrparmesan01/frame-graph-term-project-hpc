@@ -426,7 +426,9 @@ main() {
         vk::buffer_usage::shader_device_address_bit);
 
     // Handle Model Matrices Array (uniforms)
-    resource_id model_matrix_uniforms = storage.add_buffer<scene_ubo>(
+    // NOTE: Make sure to set the max size of meshes in a given scene
+    // uint32_t max_storage = sizeof(scene_ubo) * 10'000;
+    resource_id model_matrix_uniforms = storage.add_buffer<sizeof(scene_ubo) * 10'000>(
       "ObjectsTable",
       vk::memory_property::host_visible_bit |
         vk::memory_property::host_cached_bit,
@@ -462,8 +464,13 @@ main() {
     //     .rotation = {3.50f, 4.90f, 36.40f},
     //     .scale{ 1.f },
     // });
+    // viking_room.set<transform>({
+    //   .position = { -8.f, 1.79999995f, 1.5f },
+    //   .rotation = { -25.0f, -20.0f, 0.0f },
+    //   .scale{ 1.0f },
+    // });
     viking_room.set<transform>({
-      .position = { 2.20f, 3.40f, 28.0f },
+      .position = { -3.0f, 1.5f, 5.0f },
       .rotation = { -25.0f, -20.0f, 0.0f },
       .scale{ 1.0f },
     });
@@ -472,16 +479,32 @@ main() {
       .diffuse_path = "asset_samples/viking_room.png",
     });
 
-    // flecs::entity cube = registry.entity("Cube");
+    flecs::entity cube = registry.entity("Cube");
     // cube.set<transform>({
     //   .position = { 2.20f, 3.40f, 28.0f },
     //   .rotation = { -25.0f, -20.0f, 0.0f },
     //   .scale{ 1.0f },
     // });
-    // cube.set<mesh_source>({
-    //   .model_path = "asset_samples/cube.obj",
-    //   .diffuse = "assets/models/container_diffuse.png",
-    // });
+    cube.set<transform>({
+      .position = { 3.0f, 1.5f, 5.0f },
+      .rotation = { -25.0f, -20.0f, 0.0f },
+      .scale{ 1.0f },
+    });
+    cube.set<mesh_source>({
+      .model_path = "asset_samples/cube.obj",
+      .diffuse_path = "asset_samples/container_diffuse.png",
+    });
+
+    flecs::entity robot = registry.entity("Robot");
+    robot.set<transform>({
+        .position = { -7.5f, 4.6f, -1.795f },
+        .rotation = { 2.9f, 16.5f, 0.6f },
+        .scale{ 1.0f },
+    });
+    robot.set<mesh_source>({
+        .model_path = "asset_samples/robot.obj",
+        .diffuse_path = "asset_samples/wood.png",
+    });
 
     flecs::query<> all_meshes =
       registry.query_builder<mesh_source, transform>().build();
@@ -581,17 +604,10 @@ main() {
               main_graphics_pipeline.bind(p_command);
 
               // const VkBuffer vertex = test_model.vertex_handle();
-              const auto& obj_model_opt = model_storages.get("Viking Room");
-              auto obj_model = obj_model_opt.value();
-              const VkBuffer vertex = obj_model.vertex_handle();
-
-              uint64_t offset = 0;
-              p_command.bind_vertex_buffers(std::views::single(vertex),
-                                            std::views::single(offset));
-
-              if (obj_model.has_indices()) {
-                  p_command.bind_index_buffers32(obj_model.index_handle());
-              }
+              // Handle Viking Room
+            //   const auto& obj_model_opt = model_storages.get("Viking Room");
+            //   auto obj_model = obj_model_opt.value();
+            //   const VkBuffer vertex = obj_model.vertex_handle();
 
               std::optional<vk::dyn::buffer> opt =
                 p_storage.get_buffer("scene_uniforms");
@@ -615,15 +631,30 @@ main() {
 
                   main_graphics_pipeline.push_constant<push_constant_data>(
                     p_command, push, stage, 0);
+
+                    // 1.) Load
+                    const auto& model_opt = model_storages.get(p_entity.name().c_str());
+                    if(!model_opt.has_value() or !model_opt->loaded()) {
+                        std::println("Model {} did not load!", p_entity.get<mesh_source>()->model_path);
+                        return;
+                    }
+                    auto obj_model = model_opt.value();
+                    const VkBuffer vertex = obj_model.vertex_handle();
+                    uint64_t offset = 0;
+                    p_command.bind_vertex_buffers(std::views::single(vertex),
+                                                    std::views::single(offset));
+                    if (obj_model.has_indices()) {
+                        p_command.bind_index_buffers32(obj_model.index_handle());
+                    }
+
+                    const VkDescriptorSet set1_handle = set1;
+                    p_command.bind_descriptors(
+                        main_graphics_pipeline.layout(),
+                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        std::span<const VkDescriptorSet>(&set1_handle, 1));
+
+                    obj_model.draw(p_command);
               });
-
-              const VkDescriptorSet set1_handle = set1;
-              p_command.bind_descriptors(
-                main_graphics_pipeline.layout(),
-                VK_PIPELINE_BIND_POINT_GRAPHICS,
-                std::span<const VkDescriptorSet>(&set1_handle, 1));
-
-              obj_model.draw(p_command);
 
               p_command.end_rendering();
           }
@@ -797,7 +828,10 @@ main() {
         const mesh_source* src = p_entity.get<mesh_source>();
 
         if (!model_storages.contains(p_entity.name().c_str())) {
-            // Loading 3D model (viking_room.obj)
+            std::println("Loading 3D Model: {}", src->model_path);
+            if(model_storages.contains(p_entity.name().c_str())) {
+                return;
+            }
             model_storages.add_model(
                 p_entity.name().c_str(),
                 std::filesystem::path(src->model_path));

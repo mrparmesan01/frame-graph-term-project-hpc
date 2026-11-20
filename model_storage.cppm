@@ -29,12 +29,15 @@ export {
 
 
         void add_model(std::string_view p_name, const std::filesystem::path& p_path) {
-            m_models.try_emplace(p_name, p_path, m_device, m_physical);
+            obj_model model(p_path, m_device, m_physical);
+            if(!model.loaded()) {
+                std::println("Path: {}  failed to load!", p_path.string());
+            }
+
+            m_models.emplace(p_name, model);
             uint32_t idx = m_model_index++;
             m_model_matrix_lookup.emplace(p_name, idx);
-            // m_model_matrices[idx] = glm::mat4(1.f);
             m_model_matrices.emplace_back(1.f);
-            // m_model_matrices.emplace_back(idx, glm::mat4(1.f));
         }
 
         [[nodiscard]] bool contains(std::string_view p_name) {

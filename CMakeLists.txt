@@ -37,4 +37,4 @@ target_sources(${PROJECT_NAME} PUBLIC
     model_storage.cppm
 )
 
-generate_compile_commands()
+# generate_compile_commands()
