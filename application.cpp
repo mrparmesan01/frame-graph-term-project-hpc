@@ -647,11 +647,6 @@ main() {
                         p_command.bind_index_buffers32(obj_model.index_handle());
                     }
 
-                    p_command.bind_descriptors(
-                        main_graphics_pipeline.layout(),
-                        VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        std::views::single(static_cast<VkDescriptorSet>(set1)));
-
                     obj_model.draw(p_command);
               });
 
@@ -956,7 +951,10 @@ main() {
         scene_data.camera_pos = camera_position;
 
         // Perform Late Update Operation (ignore)
-
+        current.bind_descriptors(
+            main_graphics_pipeline.layout(),
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            std::views::single(static_cast<VkDescriptorSet>(set1)));
         render_graph.execute(current, storage);
 
         current.end();
