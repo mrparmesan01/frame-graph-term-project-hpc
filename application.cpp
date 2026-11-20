@@ -21,6 +21,7 @@ import uniform_types;
 import resource_storage;
 import frame_graph;
 import obj_model;
+import model_storage;
 import image;
 
 int
@@ -400,6 +401,8 @@ main() {
 
     resource_storage storage(logical_device, physical_device);
 
+    model_storage model_storages(logical_device, physical_device);
+
     float time = 0.f;
 
     // Setting up our GPU-resources (images)
@@ -449,9 +452,55 @@ main() {
       vk::buffer_usage::uniform_buffer_bit |
         vk::buffer_usage::shader_device_address_bit);
 
+    resource_id scene_uniforms = storage.add_buffer<scene_ubo>(
+      "scene_uniforms",
+      vk::memory_property::host_visible_bit |
+        vk::memory_property::host_cached_bit,
+      vk::buffer_usage::uniform_buffer_bit |
+        vk::buffer_usage::shader_device_address_bit);
+
+
+    // resource_id model_matrix_uniforms = storage.add_buffer<matrix_model_ubo>("ObjectsTable", vk::memory_property::host_visible_bit | vk::memory_property::host_cached_bit, vk::buffer_usage::uniform_buffer_bit | vk::buffer_usage::shader_device_address_bit);
+    resource_id model_matrix_uniforms = storage.add_buffer<scene_ubo>("ObjectsTable", vk::memory_property::host_visible_bit | vk::memory_property::host_cached_bit, vk::buffer_usage::uniform_buffer_bit | vk::buffer_usage::shader_device_address_bit);
+
+    // resource_id point_light_uniforms = storage.add_buffer<
+
     std::array<resource_id, 3> gbuffer_writes = { gbuffer_albedo,
                                                   gbuffer_normals,
                                                   gbuffer_depth_stencil };
+
+    // Setting up Scene Uniforms
+    flecs::world registry;
+
+    // Setup Camera stuff....
+    flecs::entity camera = registry.entity("Camera");
+    camera.add<flecs::pair<editor, projection_view>>();
+    camera.set<perspective_camera>({
+        .plane = { 0.1f, 5000.f},
+        .is_active = true,
+        .field_of_view = 45.f,
+    });
+    camera.set<transform>({
+        .position = { 3.50f, 4.90f, 36.40f },
+        .scale{ 1.f },
+    });
+
+    // Creating Viking Room
+    flecs::entity viking_room = registry.entity("Viking Room");
+    viking_room.set<transform>({
+        .position = { -2.70f, 2.70, -8.30f },
+        .rotation = { 2.30f, 95.90f, 91.80f },
+        .scale{ 1.f },
+    });
+    viking_room.set<mesh_source>({
+        .model_path = "asset_samples/viking_room.obj",
+    });
+
+    flecs::query<> all_meshes = registry.query_builder<mesh_source, transform>().build();
+
+    scene_ubo scene_data = {};
+
+
 
     // GBUffer Pass
     render_graph.emplace_pass(
@@ -532,49 +581,59 @@ main() {
               // 3. Begin Rendering & Draw Triangle
               p_command.begin_rendering(begin_params);
               main_graphics_pipeline.bind(p_command);
-              // vkCmdDraw(p_command, 3, 1, 0, 0);
 
-              const VkBuffer vertex = test_model.vertex_handle();
+              // const VkBuffer vertex = test_model.vertex_handle();
+              const auto& obj_model_opt = model_storages.get("Viking Room");
+              auto obj_model = obj_model_opt.value();
+              const VkBuffer vertex = obj_model.vertex_handle();
+
               uint64_t offset = 0;
               p_command.bind_vertex_buffers(std::views::single(vertex),
                                             std::views::single(offset));
 
-              if (test_model.has_indices()) {
-                  p_command.bind_index_buffers32(test_model.index_handle());
+              if (obj_model.has_indices()) {
+                  p_command.bind_index_buffers32(obj_model.index_handle());
               }
 
-              std::optional<vk::dyn::buffer> opt =
-                p_storage.get_buffer("global_transform");
-              auto global_transform_buffer = opt.value();
+              // std::optional<vk::dyn::buffer> opt = p_storage.get_buffer("global_transform");
+              std::optional<vk::dyn::buffer>opt = p_storage.get_buffer("scene_uniforms");
+              auto scene = opt.value();
 
               // We set the uniforms and then we offload that to the GPU
-              global_uniform ubo = {
-                  .model = glm::rotate(glm::mat4(1.0f),
-                                       time * glm::radians(90.0f),
-                                       glm::vec3(0.0f, 0.0f, 1.0f)),
-                  .view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
-                                      glm::vec3(0.0f, 0.0f, 0.0f),
-                                      glm::vec3(0.0f, 0.0f, 1.0f)),
-                  .proj = glm::perspective(glm::radians(45.0f),
-                                           (float)swapchain_extent.width /
-                                             (float)swapchain_extent.height,
-                                           0.1f,
-                                           10.0f)
-              };
-              ubo.proj[1][1] *= -1;
+            //   global_uniform ubo = {
+            //       .model = glm::rotate(glm::mat4(1.0f),
+            //                            time * glm::radians(90.0f),
+            //                            glm::vec3(0.0f, 0.0f, 1.0f)),
+            //       .view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
+            //                           glm::vec3(0.0f, 0.0f, 0.0f),
+            //                           glm::vec3(0.0f, 0.0f, 1.0f)),
+            //       .proj = glm::perspective(glm::radians(45.0f),
+            //                                (float)swapchain_extent.width /
+            //                                  (float)swapchain_extent.height,
+            //                                0.1f,
+            //                                10.0f)
+            //   };
+            //   ubo.proj[1][1] *= -1;
 
-              global_transform_buffer.transfer<global_uniform>(
-                std::views::single(ubo));
+            //   global_transform_buffer.transfer<global_uniform>(
+            //     std::views::single(ubo));
+              scene.transfer<scene_ubo>(std::views::single(scene_data));
 
-              const uint64_t ubo_address =
-                global_transform_buffer.get_device_address();
-              push_constant_data push = {
-                  .texture_index = 0,
-                  .global_ubo_addr = ubo_address,
-              };
+              std::optional<vk::dyn::buffer> objects_table_opt = p_storage.get_buffer("ObjectsTable");
+              auto objects_table = objects_table_opt.value();
+              objects_table.transfer<glm::mat4>(model_storages.model_matrices());
 
-              main_graphics_pipeline.push_constant<push_constant_data>(
-                p_command, push, stage, 0);
+              all_meshes.each([&](flecs::entity p_entity){
+                    push_constant_data push = {
+                        .texture_index = 0,
+                        // .model_matrix_id = model_storages.get_index(p_entity.name().c_str()),
+                        .model_matrix_id = 0,
+                        .scene_ubo_addr = scene.get_device_address(),
+                        .model_matrices_addr = objects_table.get_device_address(),
+                    };
+
+                    main_graphics_pipeline.push_constant<push_constant_data>(p_command, push, stage, 0);
+              });
 
               const VkDescriptorSet set1_handle = set1;
               p_command.bind_descriptors(
@@ -582,7 +641,8 @@ main() {
                 VK_PIPELINE_BIND_POINT_GRAPHICS,
                 std::span<const VkDescriptorSet>(&set1_handle, 1));
 
-              test_model.draw(p_command);
+              // test_model.draw(p_command);
+              obj_model.draw(p_command);
 
               p_command.end_rendering();
           }
@@ -711,6 +771,40 @@ main() {
 
     render_graph.print_dependencies();
 
+    // Querying all editor camera
+    auto query_editor_camera = registry.query_builder<flecs::pair<editor, projection_view>, perspective_camera>().build();
+    glm::vec4 camera_position{1.f};
+
+    float aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
+    registry.system<flecs::pair<editor, projection_view>, transform, perspective_camera>().each([&](
+        flecs::pair<editor, projection_view> p_pair,
+        transform& p_transform,
+        perspective_camera& p_camera){
+        
+            if(!p_camera.is_active) {
+                return;
+            }
+
+            p_pair->projection =
+            glm::perspective(glm::radians(p_camera.field_of_view),
+                                aspect_ratio,
+                                p_camera.plane.x,
+                                p_camera.plane.y);
+            p_pair->projection[1][1] *= -1;
+            p_pair->view = glm::mat4(1.f);
+
+            // This is converting a glm::highp_vec4 to a glm::quat
+            glm::quat quaternion = to_quat(p_transform.quaternion);
+
+            p_pair->view =
+            glm::translate(p_pair->view, p_transform.position) *
+            glm::mat4_cast(quaternion);
+
+            p_pair->view = glm::inverse(p_pair->view);
+        
+    });
+    auto start_time = std::chrono::high_resolution_clock::now();
+    float delta_time = 0.f;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         uint32_t current_frame = presentation_queue.acquire_next_image();
@@ -718,6 +812,13 @@ main() {
 
         swapchain_img = &swapchain_images[current_frame];
         swapchain_depth_img = &swapchain_depth_images[current_frame];
+
+        auto current_time = std::chrono::high_resolution_clock::now();
+
+        delta_time =
+                  std::chrono::duration<float, std::chrono::seconds::period>(
+                    current_time - start_time)
+                    .count();
 
         current.begin(vk::command_usage::simulatneous_use_bit);
 
@@ -738,12 +839,56 @@ main() {
         };
         current.set_scissor(std::views::single(scissor), 0);
 
-        static auto start_time = std::chrono::high_resolution_clock::now();
-        auto current_time = std::chrono::high_resolution_clock::now();
+        // static auto start_time = std::chrono::high_resolution_clock::now();
+        // auto current_time = std::chrono::high_resolution_clock::now();
 
-        time = std::chrono::duration<float, std::chrono::seconds::period>(
-                 current_time - start_time)
-                 .count();
+        // time = std::chrono::duration<float, std::chrono::seconds::period>(
+        //          current_time - start_time)
+        //          .count();
+
+
+        registry.progress(delta_time);
+
+
+        // Perform Physics Update Operation (ignore)
+
+        // Perform Update Operation (transforms)
+
+        // Process camera stuff
+        glm::mat4 projection{1.f};
+        glm::mat4 view{1.f};
+
+        query_editor_camera.each([&](flecs::entity p_entity, flecs::pair<editor, projection_view> p_pair, perspective_camera& p_camera){
+            if(!p_camera.is_active) {
+                return;
+            }
+
+            // Update Cam position to be written into the shader
+            const transform* t = p_entity.get<transform>();
+            camera_position = glm::vec4(t->position, 1.f);
+            projection = p_pair->projection;
+            view = p_pair->view;
+        });
+
+        scene_data.view = view;
+        scene_data.proj = projection;
+        scene_data.camera_pos = camera_position;
+
+        // Loading 3D meshes
+        all_meshes.each([&](flecs::entity p_entity){
+            const transform* t = p_entity.get<transform>();
+            const mesh_source* src = p_entity.get<mesh_source>();
+
+            if(!model_storages.contains(p_entity.name().c_str())) {
+                // Loading 3D model (viking_room.obj)
+                model_storages.add_model(p_entity.name().c_str(), std::filesystem::path(src->model_path));
+                model_storages.write_model(p_entity.name().c_str(), *t);
+            }
+        });
+
+
+
+        // Perform Late Update Operation (ignore)
 
         render_graph.execute(current, storage);
 
@@ -764,6 +909,7 @@ main() {
     viking_room_texture.destruct();
     // global_transform_buffer.reset();
     test_model.destruct();
+    model_storages.destruct();
 
     for (auto& command : swapchain_command_buffers) {
         command.destruct();

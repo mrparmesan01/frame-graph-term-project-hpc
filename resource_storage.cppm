@@ -130,6 +130,10 @@ public:
         return {};
     }
 
+    [[nodiscard]] bool contains(std::string_view p_name) {
+        return m_resource_table.contains(p_name);
+    }
+
     void destroy() {
         for(auto&[key, img] : m_images) {
             img.destruct();
@@ -151,6 +155,8 @@ private:
     std::unordered_map<resource_id, vk::dyn::buffer> m_buffers;
 
     // <name, resource_id> for looking up for specific resource to retrieve the specific resources.
+    // Since this allows us to ensure that we have a singular lookup structure to access any of the resources this storage manages
+    // whether those resources are represented as an image or buffer.
     std::unordered_map<std::string_view, resource_id> m_resource_table;
 };
 };
