@@ -38,8 +38,8 @@ export {
 
     // 0 = defaults to white texture
     struct gpu_material {
-        uint64_t diffuse_idx = 0;
-        uint64_t specular_idx = 0;
+        uint32_t diffuse_idx = 0;
+        uint32_t specular_idx = 0;
     };
 
 
@@ -104,6 +104,8 @@ export {
 
     struct mesh_source {
         std::string model_path="";
+        std::string diffuse_path="";
+        std::string specular_path="";
     };
 
     struct perspective_camera {
