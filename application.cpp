@@ -487,10 +487,17 @@ main() {
 
     // Creating Viking Room
     flecs::entity viking_room = registry.entity("Viking Room");
+    // viking_room.set<transform>({
+    //     // .position = { -2.70f, 2.70, -8.30f },
+    //     .position = {-2.70f, 2.70f, 1.f},
+    //     // .rotation = { 2.30f, 95.90f, 91.80f },
+    //     .rotation = {3.50f, 4.90f, 36.40f},
+    //     .scale{ 1.f },
+    // });
     viking_room.set<transform>({
-        .position = { -2.70f, 2.70, -8.30f },
-        .rotation = { 2.30f, 95.90f, 91.80f },
-        .scale{ 1.f },
+        .position = { 2.20f, 3.40f, 28.0f },
+        .rotation = { -25.0f, -20.0f, 0.0f },
+        .scale{ 1.0f },
     });
     viking_room.set<mesh_source>({
         .model_path = "asset_samples/viking_room.obj",
