@@ -120,7 +120,7 @@ public:
         if (m_has_indices) {
             m_indices_size = indices.size();
         }
-        m_indices_size = vertices.size();
+        m_vertices_size = vertices.size();
         m_indices_size = indices.size();
 
         vk::buffer_parameters vertex_params = {
@@ -151,6 +151,8 @@ public:
 
     [[nodiscard]] bool has_indices() const { return m_has_indices; }
 
+    [[nodiscard]] uint32_t vertices_size() const { return m_vertices_size; }
+
     [[nodiscard]] uint32_t indices_size() const { return m_indices_size; }
 
     void draw(const VkCommandBuffer& p_command) {
@@ -158,7 +160,7 @@ public:
             vkCmdDrawIndexed(p_command, m_indices_size, 1, 0, 0, 0);
         }
         else {
-            vkCmdDraw(p_command, m_indices_size, 1, 0, 0);
+            vkCmdDraw(p_command, m_vertices_size, 1, 0, 0);
         }
     }
 
@@ -170,6 +172,7 @@ public:
 private:
     bool m_is_loaded = false;
     bool m_has_indices = false;
+    uint32_t m_vertices_size;
     uint32_t m_indices_size = 0;
     vk::vertex_buffer m_vertex_buffer{};
     vk::index_buffer m_index_buffer{};

@@ -70,6 +70,14 @@ export {
             return m_model_matrices;
         }
 
+        uint32_t vertices_size(std::string_view p_name) {
+            return m_models[p_name].vertices_size();
+        }
+
+        uint32_t indices_size(std::string_view p_name) {
+            return m_models[p_name].indices_size();
+        }
+
         void destruct() {
             for(auto&[name, model] : m_models) {
                 model.destruct();
