@@ -1,6 +1,7 @@
 module;
 
 #include <cstdint>
+#include <vector>
 #include <span>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
@@ -122,4 +123,12 @@ export {
         glm::mat4 view{1.f};
     };
 
+
+    // Drawing metadata for batch rendering
+    struct gpu_draw_info {
+        uint32_t model_matrix_index=0;
+        uint32_t diffuse_idx=0;
+        uint32_t specular_idx=0;
+        uint32_t pad = 0;
+    };
 };

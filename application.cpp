@@ -428,13 +428,31 @@ main() {
     // Handle Model Matrices Array (uniforms)
     // NOTE: Make sure to set the max size of meshes in a given scene
     // uint32_t max_storage = sizeof(scene_ubo) * 10'000;
-    resource_id model_matrix_uniforms = storage.add_buffer<sizeof(scene_ubo) * 10'000>(
-      "ObjectsTable",
-      vk::memory_property::host_visible_bit |
-        vk::memory_property::host_cached_bit,
-      vk::buffer_usage::uniform_buffer_bit |
-        vk::buffer_usage::shader_device_address_bit);
+    resource_id model_matrix_uniforms =
+      storage.add_buffer<sizeof(scene_ubo) * 10'000>(
+        "ObjectsTable",
+        vk::memory_property::host_visible_bit |
+          vk::memory_property::host_cached_bit,
+        vk::buffer_usage::uniform_buffer_bit |
+          vk::buffer_usage::shader_device_address_bit);
 
+    // Indirect Draw Buffer
+    constexpr uint32_t max_draws = 10'000;
+    resource_id indirect_buffer =
+      storage.add_buffer<sizeof(VkDrawIndexedIndirectCommand) * max_draws>(
+        "IndirectCommands",
+        vk::memory_property::host_visible_bit |
+          vk::memory_property::host_coherent_bit,
+        vk::buffer_usage::indirect_buffer_bit);
+    
+    // Buffer that represents the stored metadata per draw batch (or mesh)
+    resource_id draw_metadata_buffer =
+      storage.add_buffer<sizeof(gpu_draw_info) * max_draws>(
+        "DrawInfos",
+        vk::memory_property::host_visible_bit |
+          vk::memory_property::host_coherent_bit,
+        vk::buffer_usage::storage_buffer_bit);
+    
     std::array<resource_id, 3> gbuffer_writes = { gbuffer_albedo,
                                                   gbuffer_normals,
                                                   gbuffer_depth_stencil };
@@ -471,8 +489,8 @@ main() {
     // });
     viking_room.set<transform>({
       .position = { -3.0f, 1.5f, 5.0f },
+      .scale = {1.f, 1.f, 1.f},
       .rotation = { -25.0f, -20.0f, 0.0f },
-      .scale{ 1.0f },
     });
     viking_room.set<mesh_source>({
       .model_path = "asset_samples/viking_room.obj",
@@ -487,8 +505,8 @@ main() {
     // });
     cube.set<transform>({
       .position = { 3.0f, 1.5f, 5.0f },
+      .scale = {1.f, 1.f, 1.f},
       .rotation = { -25.0f, -20.0f, 0.0f },
-      .scale{ 1.0f },
     });
     cube.set<mesh_source>({
       .model_path = "asset_samples/cube.obj",
@@ -497,13 +515,13 @@ main() {
 
     flecs::entity robot = registry.entity("Robot");
     robot.set<transform>({
-        .position = { -7.5f, 4.6f, -1.795f },
-        .rotation = { 2.9f, 16.5f, 0.6f },
-        .scale{ 1.0f },
+      .position = { -7.5f, 4.6f, -1.795f },
+      .scale = {1.f, 1.f, 1.f},
+      .rotation = { 2.9f, 16.5f, 0.6f },
     });
     robot.set<mesh_source>({
-        .model_path = "asset_samples/robot.obj",
-        .diffuse_path = "asset_samples/wood.png",
+      .model_path = "asset_samples/robot.obj",
+      .diffuse_path = "asset_samples/wood.png",
     });
 
     flecs::query<> all_meshes =
@@ -523,6 +541,9 @@ main() {
                                         vk::memory_property::host_cached_bit));
 
     scene_ubo scene_data = {};
+
+    std::vector<VkDrawIndexedIndirectCommand> indirect_commands;
+    std::vector<gpu_draw_info> draw_infos;
 
     // GBUffer Pass
     render_graph.emplace_pass(
@@ -602,18 +623,7 @@ main() {
 
               p_command.begin_rendering(begin_params);
               main_graphics_pipeline.bind(p_command);
-
-              // const VkBuffer vertex = test_model.vertex_handle();
-              // Handle Viking Room
-            //   const auto& obj_model_opt = model_storages.get("Viking Room");
-            //   auto obj_model = obj_model_opt.value();
-            //   const VkBuffer vertex = obj_model.vertex_handle();
-
-              std::optional<vk::dyn::buffer> opt =
-                p_storage.get_buffer("scene_uniforms");
-              auto scene = opt.value();
-              scene.transfer<scene_ubo>(std::views::single(scene_data));
-
+ 
               std::optional<vk::dyn::buffer> objects_table_opt =
                 p_storage.get_buffer("ObjectsTable");
               auto objects_table = objects_table_opt.value();
@@ -622,32 +632,43 @@ main() {
 
               all_meshes.each([&](flecs::entity p_entity) {
                   push_constant_data push = {
-                      .texture_index = material_table[p_entity.name().c_str()].diffuse_idx,
+                      .texture_index =
+                        material_table[p_entity.name().c_str()].diffuse_idx,
                       .model_matrix_id =
                         model_storages.get_index(p_entity.name().c_str()),
-                      .scene_ubo_addr = scene.get_device_address(),
+                      .scene_ubo_addr = p_storage.get_buffer("scene_uniforms")->get_device_address(),
                       .model_matrices_addr = objects_table.get_device_address(),
                   };
 
                   main_graphics_pipeline.push_constant<push_constant_data>(
                     p_command, push, stage, 0);
 
-                    // 1.) Load
-                    const auto& model_opt = model_storages.get(p_entity.name().c_str());
-                    if(!model_opt.has_value() or !model_opt->loaded()) {
-                        std::println("Model {} did not load!", p_entity.get<mesh_source>()->model_path);
-                        return;
-                    }
-                    auto obj_model = model_opt.value();
-                    const VkBuffer vertex = obj_model.vertex_handle();
-                    uint64_t offset = 0;
-                    p_command.bind_vertex_buffers(std::views::single(vertex),
-                                                    std::views::single(offset));
-                    if (obj_model.has_indices()) {
-                        p_command.bind_index_buffers32(obj_model.index_handle());
-                    }
+                  // 1.) Load
+                  const auto& model_opt =
+                    model_storages.get(p_entity.name().c_str());
+                  if (!model_opt.has_value() or !model_opt->loaded()) {
+                      std::println("Model {} did not load!",
+                                   p_entity.get<mesh_source>()->model_path);
+                      return;
+                  }
+                  auto obj_model = model_opt.value();
+                  const VkBuffer vertex = obj_model.vertex_handle();
+                  uint64_t offset = 0;
+                  p_command.bind_vertex_buffers(std::views::single(vertex),
+                                                std::views::single(offset));
+                  if (obj_model.has_indices()) {
+                      p_command.bind_index_buffers32(obj_model.index_handle());
+                  }
 
-                    obj_model.draw(p_command);
+                auto ind_buf_opt = p_storage.get_buffer("IndirectCommands");
+                if(ind_buf_opt.has_value() && !indirect_commands.empty()) {
+                  vkCmdDrawIndexedIndirect(
+                    p_command,
+                    ind_buf_opt.value(),
+                    0,
+                    static_cast<uint32_t>(indirect_commands.size()),
+                    sizeof(VkDrawIndexedIndirectCommand));
+                }
               });
 
               p_command.end_rendering();
@@ -823,35 +844,38 @@ main() {
 
         if (!model_storages.contains(p_entity.name().c_str())) {
             std::println("Loading 3D Model: {}", src->model_path);
-            if(model_storages.contains(p_entity.name().c_str())) {
+            if (model_storages.contains(p_entity.name().c_str())) {
                 return;
             }
-            model_storages.add_model(
-                p_entity.name().c_str(),
-                std::filesystem::path(src->model_path));
+            model_storages.add_model(p_entity.name().c_str(),
+                                     std::filesystem::path(src->model_path));
             model_storages.write_model(p_entity.name().c_str(), *t);
 
             vk::texture_params config_texture = {
                 .memory_mask = physical_device.memory_properties(
-                    vk::memory_property::host_visible_bit |
-                    vk::memory_property::host_cached_bit),
+                  vk::memory_property::host_visible_bit |
+                  vk::memory_property::host_cached_bit),
             };
             // Loading texture and setting up VkSampler and VkImageView
-            stb_image diffuse_img = stb_image(src->diffuse_path, config_texture);
-            stb_image specular_img = stb_image(src->specular_path, config_texture);
+            stb_image diffuse_img =
+              stb_image(src->diffuse_path, config_texture);
+            stb_image specular_img =
+              stb_image(src->specular_path, config_texture);
 
             // Loading Diffuse Texture
             gpu_material material = {};
-            if(!src->diffuse_path.empty()) {
+            if (!src->diffuse_path.empty()) {
                 std::println("Loading: {}", src->diffuse_path);
                 material.diffuse_idx = texture_slot++;
-                gpu_textures.emplace_back(logical_device, &diffuse_img, config_texture);
+                gpu_textures.emplace_back(
+                  logical_device, &diffuse_img, config_texture);
             }
-            
+
             // Loading Specular Texture
-            if(!src->specular_path.empty()) {
+            if (!src->specular_path.empty()) {
                 material.specular_idx = texture_slot++;
-                gpu_textures.emplace_back(logical_device, &specular_img, config_texture);
+                gpu_textures.emplace_back(
+                  logical_device, &specular_img, config_texture);
             }
 
             material_table.emplace(p_entity.name().c_str(), material);
@@ -887,6 +911,50 @@ main() {
     };
 
     set1.update({}, std::views::single(set1_sampler));
+
+    // Setting up Draw Indexed Indirect Commands in this each
+    // vkCmdDrawIndexedIndirect gets called in emplace_pass("GBuffer",...)
+    all_meshes.each([&](flecs::entity p_entity){
+        std::string name(p_entity.name().c_str());
+        const auto model_opt = model_storages.get(name);
+        if(!model_opt.has_value()) {
+            std::println("Error: Model {} was not found in model_storage!", name);
+            return;
+        }
+
+        uint32_t matrix_idx = model_storages.get_index(name);
+        const auto& mat = material_table[name];
+
+        indirect_commands.push_back(VkDrawIndexedIndirectCommand{
+            .indexCount = model_storages.indices_size(name),
+            .instanceCount = 1,
+            .firstIndex = 0,
+            .vertexOffset = 0,
+            .firstInstance = matrix_idx,
+        });
+
+        draw_infos.push_back(gpu_draw_info{
+            .model_matrix_index = matrix_idx,
+            .diffuse_idx = mat.diffuse_idx,
+            .specular_idx = mat.specular_idx,
+        });
+    });
+
+    if (!indirect_commands.empty()) {
+        auto indirect_buf_opt = storage.get_buffer("IndirectCommands");
+        if(indirect_buf_opt.has_value()) {
+            auto indirect_buf = indirect_buf_opt.value();
+            indirect_buf.transfer<VkDrawIndexedIndirectCommand>(indirect_commands);
+        }
+    }
+
+    if(!draw_infos.empty()) {
+        auto draw_infos_buf_opt = storage.get_buffer("DrawInfos");
+        if(draw_infos_buf_opt.has_value()) {
+            auto draw_infos_buf = draw_infos_buf_opt.value();
+            draw_infos_buf.transfer<gpu_draw_info>(draw_infos);
+        }
+    }
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -949,12 +1017,15 @@ main() {
         scene_data.view = view;
         scene_data.proj = projection;
         scene_data.camera_pos = camera_position;
+        std::optional<vk::dyn::buffer> scene_optional = storage.get_buffer("scene_uniforms");
+        scene_optional->transfer<scene_ubo>(std::views::single(scene_data));
+        
 
         // Perform Late Update Operation (ignore)
         current.bind_descriptors(
-            main_graphics_pipeline.layout(),
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            std::views::single(static_cast<VkDescriptorSet>(set1)));
+          main_graphics_pipeline.layout(),
+          VK_PIPELINE_BIND_POINT_GRAPHICS,
+          std::views::single(static_cast<VkDescriptorSet>(set1)));
         render_graph.execute(current, storage);
 
         current.end();
@@ -972,10 +1043,9 @@ main() {
     main_graphics_pipeline.destruct();
     set1.destruct();
     viking_room_texture.destruct();
-    // global_transform_buffer.reset();
     test_model.destruct();
     model_storages.destruct();
-    for(auto& texture : gpu_textures) {
+    for (auto& texture : gpu_textures) {
         texture.destruct();
     }
 
