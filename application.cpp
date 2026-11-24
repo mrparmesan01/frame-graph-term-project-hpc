@@ -23,6 +23,7 @@ import frame_graph;
 import obj_model;
 import model_storage;
 import image;
+import environment_map;
 
 int
 main() {
@@ -542,8 +543,14 @@ main() {
 
     scene_ubo scene_data = {};
 
+
+    environment_map environment(logical_device, physical_device, "asset_samples/monkstown_castle_4k.hdr", surface_properties.format.format, depth_format);
+
     std::vector<VkDrawIndexedIndirectCommand> indirect_commands;
     std::vector<gpu_draw_info> draw_infos;
+
+    glm::mat4 projection = glm::mat4(1.f);
+    glm::mat4 view = glm::mat4(1.f);
 
     // GBUffer Pass
     render_graph.emplace_pass(
@@ -670,6 +677,10 @@ main() {
                     sizeof(VkDrawIndexedIndirectCommand));
                 }
               });
+
+              environment.begin(projection, view);
+
+              environment.end();
 
               p_command.end_rendering();
           }
@@ -824,6 +835,8 @@ main() {
                              p_camera.plane.x,
                              p_camera.plane.y);
           p_pair->projection[1][1] *= -1;
+          projection = p_pair->projection;
+
           p_pair->view = glm::mat4(1.f);
 
           // This is converting a glm::highp_vec4 to a glm::quat
@@ -833,6 +846,7 @@ main() {
                          glm::mat4_cast(quaternion);
 
           p_pair->view = glm::inverse(p_pair->view);
+          view = p_pair->view;
       });
     auto start_time = std::chrono::high_resolution_clock::now();
     float delta_time = 0.f;
@@ -991,6 +1005,8 @@ main() {
 
         registry.progress(delta_time);
 
+        environment.current_command(current);
+
         // Perform Physics Update Operation (ignore)
 
         // Perform Update Operation (transforms)
@@ -1048,6 +1064,8 @@ main() {
     for (auto& texture : gpu_textures) {
         texture.destruct();
     }
+
+    environment.destruct();
 
     for (auto& command : swapchain_command_buffers) {
         command.destruct();

@@ -35,6 +35,7 @@ target_sources(${PROJECT_NAME} PUBLIC
     uniform_types.cppm
     frame_graph.cppm
     model_storage.cppm
+    environment_map.cppm
 )
 
 # generate_compile_commands()
