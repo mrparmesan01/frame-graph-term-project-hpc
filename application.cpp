@@ -5,6 +5,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <filesystem>
 
@@ -24,6 +26,8 @@ import obj_model;
 import model_storage;
 import image;
 import environment_map;
+import math;
+import events;
 
 int
 main() {
@@ -835,7 +839,6 @@ main() {
                              p_camera.plane.x,
                              p_camera.plane.y);
           p_pair->projection[1][1] *= -1;
-          projection = p_pair->projection;
 
           p_pair->view = glm::mat4(1.f);
 
@@ -846,6 +849,7 @@ main() {
                          glm::mat4_cast(quaternion);
 
           p_pair->view = glm::inverse(p_pair->view);
+          projection = p_pair->projection;
           view = p_pair->view;
       });
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -970,8 +974,12 @@ main() {
         }
     }
 
+    bool is_first_frame = true;
+    glm::vec2 last_cursor_pos=glm::vec2(0.f);
+    float yaw = 0.f;
+    float pitch = 0.f;
+
     while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
         uint32_t current_frame = presentation_queue.acquire_next_image();
         vk::command_buffer current = swapchain_command_buffers[current_frame];
 
@@ -981,8 +989,113 @@ main() {
         auto current_time = std::chrono::high_resolution_clock::now();
 
         delta_time = std::chrono::duration<float, std::chrono::seconds::period>(
-                       current_time - start_time)
+                       current_time - last_time)
                        .count();
+
+        start_time = current_time;
+
+        if (delta_time > 0.1f) {
+            delta_time = 0.1f;
+        }
+
+        glfwPollEvents();
+
+        registry.progress(delta_time);
+
+
+        // Perform Physics Update Operation (ignore)
+
+        // Perform Update Operation (transforms)
+
+        // Process camera stuff
+        // glm::mat4 projection{ 1.f };
+        // glm::mat4 view{ 1.f };
+
+        // Inputting Camera Update Logic Here
+        transform* t = camera.get_mut<transform>();
+        float dt = delta_time;
+        float default_speed = 10.f;
+        float movement_speed = 10.f;
+        float velocity = default_speed * dt;
+        if (is_mouse_pressed(window, mouse_button_middle)) {
+            velocity = movement_speed * dt;
+        }
+
+        glm::quat to_quaternion = to_quat(t->quaternion);
+
+        glm::vec3 up = glm::rotate(to_quaternion, math::up());
+        glm::vec3 forward = glm::rotate(to_quaternion, math::backward());
+        glm::vec3 right = glm::rotate(to_quaternion, math::right());
+
+        // Q = UP
+        if (is_key_pressed(window, key_q)) {
+            t->position += up * velocity;
+        }
+
+        // E = DOWN
+        if (is_key_pressed(window, key_e)) {
+            t->position -= up * velocity;
+        }
+
+        if (is_key_pressed(window, key_w)) {
+            t->position += forward * velocity;
+        }
+        if (is_key_pressed(window, key_s)) {
+            t->position -= forward * velocity;
+        }
+
+        if (is_key_pressed(window, key_d)) {
+            t->position += right * velocity;
+        }
+        if (is_key_pressed(window, key_a)) {
+            t->position -= right * velocity;
+        }
+
+        glm::vec2 current_cursor_pos = cursor_position(window);
+        if (is_first_frame) {
+            last_cursor_pos = current_cursor_pos;
+            is_first_frame = false;
+        }
+
+        // NOTE: For now disabling, will add back later...
+        // if (is_mouse_pressed(window, mouse_button_middle)) {
+        //     // set_cursor_mode(atlas::cursor_mode::disabled);
+        //     // sensitivity is how fast the cursor rotates
+        //     float mouse_sensitivity = 0.01;
+        //     glm::vec2 cursor_dt = current_cursor_pos - last_cursor_pos;
+
+        //     yaw -= (cursor_dt.x * mouse_sensitivity);
+        //     pitch -= (cursor_dt.y * mouse_sensitivity);
+
+        //     t->set_rotation(glm::vec3(pitch, yaw, 0.0f));
+        // }
+        float turn_speed = 0.5f;
+
+        // Inside your while loop:
+        if (is_key_pressed(window, key_o)) {
+            yaw += turn_speed * dt;
+        }
+        if (is_key_pressed(window, key_p)) {
+            yaw -= turn_speed * dt;
+        }
+
+        t->set_rotation(glm::vec3(pitch, yaw, 0.0f));
+
+        query_editor_camera.each(
+          [&](flecs::entity p_entity,
+              flecs::pair<editor, projection_view> p_pair,
+              perspective_camera& p_camera) {
+              if (!p_camera.is_active) {
+                  return;
+              }
+
+              // Update Cam position to be written into the shader
+              const transform* t = p_entity.get<transform>();
+              camera_position = glm::vec4(t->position, 1.f);
+              projection = p_pair->projection;
+              view = p_pair->view;
+          });
+
 
         current.begin(vk::command_usage::simulatneous_use_bit);
 
@@ -1003,32 +1116,7 @@ main() {
         };
         current.set_scissor(std::views::single(scissor), 0);
 
-        registry.progress(delta_time);
-
         environment.current_command(current);
-
-        // Perform Physics Update Operation (ignore)
-
-        // Perform Update Operation (transforms)
-
-        // Process camera stuff
-        glm::mat4 projection{ 1.f };
-        glm::mat4 view{ 1.f };
-
-        query_editor_camera.each(
-          [&](flecs::entity p_entity,
-              flecs::pair<editor, projection_view> p_pair,
-              perspective_camera& p_camera) {
-              if (!p_camera.is_active) {
-                  return;
-              }
-
-              // Update Cam position to be written into the shader
-              const transform* t = p_entity.get<transform>();
-              camera_position = glm::vec4(t->position, 1.f);
-              projection = p_pair->projection;
-              view = p_pair->view;
-          });
 
         scene_data.view = view;
         scene_data.proj = projection;

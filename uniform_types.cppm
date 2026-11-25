@@ -10,6 +10,7 @@ module;
 
 export module uniform_types;
 
+import math;
 
 export {
 
@@ -53,25 +54,6 @@ export {
         uint64_t specular_idx = 0;
         uint64_t point_light_arr_addr = 0;
     };
-
-    //! @brief converts vec4 to quaterion
-    glm::quat to_quat(const glm::vec4& p_values) {
-        return glm::quat({
-          p_values.w,
-          p_values.x,
-          p_values.y,
-          p_values.z,
-        });
-    }
-
-    //! @brief converts vec3 to quaterion
-    glm::highp_vec4 from_quat(const glm::vec3& p_values) {
-        // converts glm::vec3 rotation to a quaternion returning the
-        // quaternion-converted values to glm::highp_vec4
-        auto quaternion = glm::quat(p_values);
-        return glm::vec4(
-          { quaternion.x, quaternion.y, quaternion.z, quaternion.w });
-    }
 
     // scene object ubo
     struct transform {

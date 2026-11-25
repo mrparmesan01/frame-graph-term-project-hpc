@@ -36,6 +36,12 @@ target_sources(${PROJECT_NAME} PUBLIC
     frame_graph.cppm
     model_storage.cppm
     environment_map.cppm
+
+    events/event.cppm
+    events/keyboard.cppm
+    events/mouse.cppm
+
+    math.cppm
 )
 
 # generate_compile_commands()
