@@ -682,10 +682,6 @@ main() {
                 }
               });
 
-              environment.begin(projection, view);
-
-              environment.end();
-
               p_command.end_rendering();
           }
       });
@@ -706,6 +702,89 @@ main() {
     std::array<resource_id, 2> present_reads = { gbuffer_albedo,
                                                  lighting_output_image };
 
+    
+    std::array<resource_id, 1> environment_reads = {gbuffer_depth_stencil};
+    std::array<resource_id, 1> environment_writes = {gbuffer_albedo};
+    render_graph.emplace_pass("environment_pass", environment_reads, environment_writes, [&](vk::command_buffer p_command, resource_storage& p_storage){
+
+        auto albedo_opt = p_storage.get_image("GBuffer_albedo");
+        auto depth_opt = p_storage.get_image("GBuffer_depth_stencil");
+        environment.current_command(p_command);
+        if(!albedo_opt and !depth_opt) {
+            return;
+        }
+
+        auto albedo = albedo_opt.value();
+        auto depth = depth_opt.value();
+
+        vk::v2::image_memory_barrier albedo_barrier = {
+            .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe, // Earliest stage: no prior work required
+            .src_access_mask = vk::v2::access_flags::memory_read_bit,     // Flushes generic prior reads
+            .dst_stage_mask  = vk::v2::pipeline_stage_flags::color_attachment_output, // Waits at color output stage
+            .dst_access_mask = vk::v2::access_flags::color_attachment_write_bit, // Prepares for color attachment writes
+            .old_layout      = vk::image_layout::undefined, // Previous layout contents can be discarded
+            .new_layout      = vk::image_layout::color_optimal, // Transition to optimal color attachment layout
+            .subresource_range = {
+                .aspect_mask = vk::image_aspect_flags::color_bit, // Targets color-spaces
+                .level_count = 1,
+                .layer_count = 1,
+            },
+        };
+        albedo.pipeline_barriers(p_command,
+                                std::views::single(albedo_barrier));
+
+        vk::v2::image_memory_barrier depth_barrier = {
+            .src_stage_mask  = vk::v2::pipeline_stage_flags::top_of_pipe,
+            .src_access_mask = vk::v2::access_flags::memory_read_bit,
+            .dst_stage_mask  = vk::v2::pipeline_stage_flags::early_fragment_shader_bit,
+            .dst_access_mask = vk::v2::access_flags::depth_stencil_attachment_write_bit,
+            .old_layout      = vk::image_layout::undefined,
+            .new_layout      = vk::image_layout::depth_stencil_optimal,
+            .subresource_range = {
+                .aspect_mask = vk::image_aspect_flags::depth_bit | vk::image_aspect_flags::stencil_bit,
+                .level_count = 1,
+                .layer_count = 1,
+            },
+        };
+        depth.pipeline_barriers(p_command,
+                                std::views::single(depth_barrier));
+
+        vk::rendering_attachment color_render_attachment = {
+            .image_view = albedo.image_view(),
+            .layout = vk::image_layout::color_optimal,
+            .load = vk::attachment_load::load,
+            .store = vk::attachment_store::store,
+            .clear_values = clear_color
+        };
+
+        vk::rendering_attachment depth_stencil_attachment = {
+            .image_view = depth.image_view(),
+            .layout = vk::image_layout::depth_stencil_optimal,
+            .load = vk::attachment_load::load,
+            .store = vk::attachment_store::store,
+            .depth_values = depth_value
+        };
+
+        vk::rendering_begin_parameters begin_params = {
+            .render_area = { { 0, 0 },
+                            { static_cast<uint32_t>(width),
+                                static_cast<uint32_t>(height) } },
+            .layer_count = 1,
+            .color_attachments =
+            std::span<const vk::rendering_attachment>(
+                &color_render_attachment, 1),
+            .depth_attachment = depth_stencil_attachment,
+            .stencil_attachment = depth_stencil_attachment,
+        };
+
+        p_command.begin_rendering(begin_params);
+
+        environment.begin(projection, view);
+
+        environment.end();
+
+        p_command.end_rendering();
+    });
     // Final Output Pass
     /**
 
@@ -809,7 +888,8 @@ main() {
           }
       });
 
-    render_graph.compile();
+    
+      render_graph.compile();
 
     render_graph.print_dependencies();
 
@@ -989,7 +1069,7 @@ main() {
         auto current_time = std::chrono::high_resolution_clock::now();
 
         delta_time = std::chrono::duration<float, std::chrono::seconds::period>(
-                       current_time - last_time)
+                       current_time - start_time)
                        .count();
 
         start_time = current_time;
@@ -1115,8 +1195,6 @@ main() {
                         static_cast<uint32_t>(height) },
         };
         current.set_scissor(std::views::single(scissor), 0);
-
-        environment.current_command(current);
 
         scene_data.view = view;
         scene_data.proj = projection;
