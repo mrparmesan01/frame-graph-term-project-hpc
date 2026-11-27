@@ -625,9 +625,7 @@ main() {
                                    { static_cast<uint32_t>(width),
                                      static_cast<uint32_t>(height) } },
                   .layer_count = 1,
-                  .color_attachments =
-                    std::span<const vk::rendering_attachment>(
-                      &color_render_attachment, 1),
+                  .color_attachments = std::views::single(color_render_attachment),
                   .depth_attachment = depth_stencil_attachment,
                   .stencil_attachment = depth_stencil_attachment,
               };
@@ -770,9 +768,7 @@ main() {
                             { static_cast<uint32_t>(width),
                                 static_cast<uint32_t>(height) } },
             .layer_count = 1,
-            .color_attachments =
-            std::span<const vk::rendering_attachment>(
-                &color_render_attachment, 1),
+            .color_attachments = std::views::single(color_render_attachment),
             .depth_attachment = depth_stencil_attachment,
             .stencil_attachment = depth_stencil_attachment,
         };
