@@ -937,7 +937,6 @@ main() {
         const mesh_source* src = p_entity.get<mesh_source>();
 
         if (!model_storages.contains(p_entity.name().c_str())) {
-            std::println("Loading 3D Model: {}", src->model_path);
             if (model_storages.contains(p_entity.name().c_str())) {
                 return;
             }
@@ -959,7 +958,6 @@ main() {
             // Loading Diffuse Texture
             gpu_material material = {};
             if (!src->diffuse_path.empty()) {
-                std::println("Loading: {}", src->diffuse_path);
                 material.diffuse_idx = texture_slot++;
                 gpu_textures.emplace_back(
                   logical_device, &diffuse_img, config_texture);
