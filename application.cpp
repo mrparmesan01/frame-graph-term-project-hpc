@@ -556,11 +556,17 @@ main() {
     glm::mat4 projection = glm::mat4(1.f);
     glm::mat4 view = glm::mat4(1.f);
 
+    // std::array<resource_write, 1> gbuffer_resrc_write = {
+    //     {gbuffer_depth_stencil, resource_usage::depth_stencil_write },
+    // };
+    resource_write gbuffer_resrc_write = { gbuffer_depth_stencil, resource_usage::depth_stencil_write };
+
     // GBUffer Pass
     render_graph.emplace_pass(
       "GBuffer",
       {},
       gbuffer_writes,
+      std::views::single(gbuffer_resrc_write),
       [&](vk::command_buffer p_command, resource_storage& p_storage) {
           auto albedo_opt = p_storage.get_image("GBuffer_albedo");
           auto depth_opt = p_storage.get_image("GBuffer_depth_stencil");
@@ -693,6 +699,7 @@ main() {
       "Lighting_pass",
       lighting_reads,
       lighting_writes,
+      {},
       [](vk::command_buffer p_command, resource_storage& p_storage) {});
 
     vk::sample_image* swapchain_img = nullptr;
@@ -703,7 +710,11 @@ main() {
     
     std::array<resource_id, 1> environment_reads = {gbuffer_depth_stencil};
     std::array<resource_id, 1> environment_writes = {gbuffer_albedo};
-    render_graph.emplace_pass("environment_pass", environment_reads, environment_writes, [&](vk::command_buffer p_command, resource_storage& p_storage){
+
+    resource_write environment_resrc_write = {
+        gbuffer_albedo, resource_usage::color_attachment_write,
+    };
+    render_graph.emplace_pass("environment_pass", environment_reads, environment_writes, std::views::single(environment_resrc_write), [&](vk::command_buffer p_command, resource_storage& p_storage){
 
         auto albedo_opt = p_storage.get_image("GBuffer_albedo");
         auto depth_opt = p_storage.get_image("GBuffer_depth_stencil");
@@ -797,6 +808,7 @@ main() {
       "Final Output",
       present_reads,
       {},
+      {}, // no resource_write descripted
       [&](vk::command_buffer p_command, resource_storage& p_storage) {
           if (swapchain_img == nullptr and swapchain_depth_img == nullptr) {
               return;

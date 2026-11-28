@@ -26,7 +26,42 @@ import vk;
 import types;
 import resource_storage;
 
+inline vk::v2::pipeline_stage_flags operator|(vk::v2::pipeline_stage_flags p_lhs,
+                                 vk::v2::pipeline_stage_flags p_rhs) {
+    // Lets us truncate the underlying type of the enum (class) to allow
+    // it to be bitwise OR'd
+    using T = std::underlying_type_t<vk::v2::pipeline_stage_flags>;
+    return static_cast<vk::v2::pipeline_stage_flags>(static_cast<T>(p_lhs) |
+                                        static_cast<T>(p_rhs));
+}
+
 export {
+
+// Enum values to evaluate the use for description for that particular resource
+enum class resource_usage {
+    color_attachment_write,
+    depth_stencil_write,
+    depth_stencil_read,
+    compute_shader_write,
+    compure_shader_read,
+    fragment_shader_sample,
+    transfer_src,
+    transfer_dst,
+    present
+};
+
+// Parameters to evaluate how this particular resource is going to be written
+struct resource_write {
+    resource_id id;
+    resource_usage usage;
+};
+
+struct resource_barrier {
+    enum vk::image_layout layout = vk::image_layout::undefined;
+    vk::v2::pipeline_stage_flags stage_flags;
+    vk::v2::access_flags access;
+    bool is_write = false;
+};
 
 struct renderpass_node {
     std::string name="";
@@ -39,7 +74,7 @@ class frame_graph {
 public:
 
 
-    pass_id emplace_pass(std::string_view p_name, std::span<resource_id> p_reads, std::span<resource_id> p_writes, std::function<void(vk::command_buffer, resource_storage&)> p_callback) {
+    pass_id emplace_pass(std::string_view p_name, std::span<resource_id> p_reads, std::span<resource_id> p_writes, std::span<const resource_write> p_write_description, std::function<void(vk::command_buffer, resource_storage&)> p_callback) {
         pass_id id = m_current_pass_id++;
         m_name_to_id_table[p_name] = id;
         pass_description desc = {p_name, id, {p_reads.data(), p_reads.size()}, {p_writes.data(), p_writes.size()}};
@@ -188,8 +223,83 @@ public:
     }
 
 private:
+    // Perform automated barriers calls and batching
+    void synchronize_barriers() {
+    }
+
+
+private:
+    [[nodiscard]] resource_barrier make_barrier(resource_usage p_usage) const {
+        using pipeline_stage_flags = vk::v2::pipeline_stage_flags;
+        using access_flags = vk::v2::access_flags;
+
+        switch(p_usage) {
+            // Color attachments are written via color output
+            case resource_usage::color_attachment_write:
+                return {
+                    .layout = vk::image_layout::color_optimal,
+                    .stage_flags = pipeline_stage_flags::color_attachment_output,
+                    .access = access_flags::color_attachment_write_bit,
+                    .is_write = true,
+                };
+            case resource_usage::depth_stencil_write:
+                // Depth/stencil writes can occur in earlier or later stages
+                return {
+                    .layout = vk::image_layout::depth_stencil_optimal,
+                    .stage_flags = pipeline_stage_flags::early_fragment_shader_bit | pipeline_stage_flags::late_fragment_tests_bit,
+                    .access = access_flags::depth_stencil_attachment_write_bit,
+                    .is_write = true,
+                };
+            case resource_usage::depth_stencil_read:
+                // Depth/stencil reads only happen in the earlier stages
+                return {
+                    .layout = vk::image_layout::depth_stencil_read_only_optimal,
+                    .stage_flags = pipeline_stage_flags::early_fragment_shader_bit,
+                    .access = access_flags::depth_stencil_attachment_read_bit,
+                    .is_write = false,
+                };
+            case resource_usage::fragment_shader_sample:
+                // Shader samplers occur in the fragment stages
+                return {
+                    .layout= vk::image_layout::shader_read_only_optimal,
+                    .stage_flags = pipeline_stage_flags::transient_bit, // TODO: Change pipeline_stage_flags::blit_bit
+                    .access = access_flags::shader_read_bit,
+                    .is_write = false,
+                };
+            case resource_usage::transfer_src:
+                // Blit/copy source reads
+                return {
+                    .layout = vk::image_layout::transfer_src_optimal,
+                    .stage_flags = pipeline_stage_flags::transient_bit, // TODO: Change pipeline_stage_flags::blit_bit
+                    .access = access_flags::transfer_read_bit,
+                    .is_write = false,
+                };
+            case resource_usage::transfer_dst:
+                // Blit/copy destination writes
+                return {
+                    .layout = vk::image_layout::transfer_dst_optimal,
+                    .stage_flags = pipeline_stage_flags::transient_bit, // TODO: Change pipeline_stage_flags::blit_bit
+                    // .access = ..., // Undefined
+                    .is_write = false,
+                };
+            case resource_stage::present:
+                // Final layout required before presenting to the swapchain
+                return {
+                    .layout = vk::image_layout::present_src_khr,
+                    .stage_flags = pipeline_stage_flags::bottom_of_pipe,
+                    // .access = ..., // Undefined
+                    .is_write = false,
+                };
+            default:
+                // Fallback to undefined/top-of-pipe flag
+                return {};
+        }
+    }
+
+private:
     pass_id m_current_pass_id=0;
     std::unordered_map<std::string_view, pass_id> m_name_to_id_table;
+    std::unordered_map<pass_id, resource_barrier> m_barrier_descriptions;
     std::unordered_map<pass_id, std::function<void(vk::command_buffer, resource_storage&)>> m_execute_commands;
     std::vector<pass_description> m_passes;
     std::vector<pass_description> m_execution_order;
