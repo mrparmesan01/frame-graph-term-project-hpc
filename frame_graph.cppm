@@ -234,6 +234,7 @@ private:
         using access_flags = vk::v2::access_flags;
 
         switch(p_usage) {
+            // Color attachments are written via color output
             case resource_usage::color_attachment_write:
                 return {
                     .layout = vk::image_layout::color_optimal,
@@ -242,6 +243,7 @@ private:
                     .is_write = true,
                 };
             case resource_usage::depth_stencil_write:
+                // Depth/stencil writes can occur in earlier or later stages
                 return {
                     .layout = vk::image_layout::depth_stencil_optimal,
                     .stage_flags = pipeline_stage_flags::early_fragment_shader_bit | pipeline_stage_flags::late_fragment_tests_bit,
@@ -249,6 +251,7 @@ private:
                     .is_write = true,
                 };
             case resource_usage::depth_stencil_read:
+                // Depth/stencil reads only happen in the earlier stages
                 return {
                     .layout = vk::image_layout::depth_stencil_read_only_optimal,
                     .stage_flags = pipeline_stage_flags::early_fragment_shader_bit,
@@ -256,6 +259,7 @@ private:
                     .is_write = false,
                 };
             case resource_usage::fragment_shader_sample:
+                // Shader samplers occur in the fragment stages
                 return {
                     .layout= vk::image_layout::shader_read_only_optimal,
                     .stage_flags = pipeline_stage_flags::transient_bit, // TODO: Change pipeline_stage_flags::blit_bit
@@ -263,6 +267,7 @@ private:
                     .is_write = false,
                 };
             case resource_usage::transfer_src:
+                // Blit/copy source reads
                 return {
                     .layout = vk::image_layout::transfer_src_optimal,
                     .stage_flags = pipeline_stage_flags::transient_bit, // TODO: Change pipeline_stage_flags::blit_bit
@@ -270,9 +275,19 @@ private:
                     .is_write = false,
                 };
             case resource_usage::transfer_dst:
+                // Blit/copy destination writes
                 return {
                     .layout = vk::image_layout::transfer_dst_optimal,
                     .stage_flags = pipeline_stage_flags::transient_bit, // TODO: Change pipeline_stage_flags::blit_bit
+                    // .access = ..., // Undefined
+                    .is_write = false,
+                };
+            case resource_stage::present:
+                // Final layout required before presenting to the swapchain
+                return {
+                    .layout = vk::image_layout::present_src_khr,
+                    .stage_flags = pipeline_stage_flags::bottom_of_pipe,
+                    // .access = ..., // Undefined
                     .is_write = false,
                 };
             default:
