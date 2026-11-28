@@ -229,7 +229,7 @@ private:
 
 
 private:
-    [[nodiscard]] resource_barrier make_barrier(resource_usage p_usage) const {
+    [[nodiscard]] constexpr resource_barrier make_barrier(resource_usage p_usage) const noexcept {
         using pipeline_stage_flags = vk::v2::pipeline_stage_flags;
         using access_flags = vk::v2::access_flags;
 
